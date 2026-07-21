@@ -1,10 +1,23 @@
+# Marstek Venus E for Home Assistant
+
 <p align="center">
-  <img src="logo.png" alt="Marstek Venus E" width="400">
+  <img src="https://raw.githubusercontent.com/JS-DE-Tech/hacs-marstek-api-connect/main/docs/images/marstek-venus-e.png"
+       alt="Marstek Venus E battery storage system"
+       width="420">
 </p>
 
-# Marstek Venus E - Home Assistant Integration
+Home Assistant integration for Marstek Venus E battery storage systems using the local UDP JSON-RPC API.
 
-Lokale Home-Assistant-Integration für den Marstek Venus E, einschließlich Venus E 3.0. Die Kommunikation erfolgt direkt im lokalen Netzwerk über die UDP-JSON-RPC-Schnittstelle; die Marstek-App kann parallel verwendet werden.
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Custom%20Integration-41BDF5?logo=home-assistant&logoColor=white)](https://www.home-assistant.io/)
+[![HACS](https://img.shields.io/badge/HACS-Custom%20Repository-41BDF5)](https://hacs.xyz/)
+[![Protocol](https://img.shields.io/badge/protocol-local%20UDP-success)](#APIReference)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](https://github.com/JS-DE-Tech/hacs-marstek-api-connect/blob/main/LICENSE)
+[![Support via PayPal](https://img.shields.io/badge/Support%20via-PayPal-0070BA?logo=paypal&logoColor=white)](https://paypal.me/JensSaffrich)
+
+Local Home Assistant HACS custom integration for the **Marstek Venus E**, including
+the Venus E 3.0. It communicates directly with the battery over the LAN without a
+cloud connection and provides local monitoring, operating-mode control and automatic
+storage/winter operation. The official Marstek app can continue to be used in parallel.
 
 ## Projektfunktionen
 
@@ -40,11 +53,6 @@ Mögliche Werte von **Status-Lagerung**:
 - `Lagerung – Vollladung erkannt (1/2 Tage)`
 
 Der normale Sensor **Status** zeigt weiterhin `Standby`, `Laden`, `Entladen` oder die jeweilige Lagerungsphase an.
-
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-A comprehensive Home Assistant custom integration for the **Marstek Venus E** battery energy storage system. This integration provides full local control and monitoring via the device's UDP JSON-RPC API.
 
 <!-- vscode-markdown-toc -->
 * 1. [Features](#Features)
