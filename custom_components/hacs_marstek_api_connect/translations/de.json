@@ -1,0 +1,177 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Marstek Venus E einrichten",
+        "description": "Starte die Suche nach deinem Marstek Venus E und verbinde ihn mit Home Assistant.",
+        "data": {
+          "confirm": "Weiter"
+        }
+      },
+      "discovery": {
+        "title": "Geräte werden gesucht",
+        "description": "Das lokale Netzwerk wird nach Marstek-Geräten durchsucht …"
+      },
+      "select_device": {
+        "title": "Gerät auswählen",
+        "description": "Es wurden {device_count} Gerät(e) gefunden. Wähle ein Gerät aus, starte die Suche erneut oder gib die IP-Adresse manuell ein.",
+        "data": {
+          "ip_address": "Gerät",
+          "port": "UDP-Port (Standard: 30000)",
+          "ble_mac": "Bluetooth-MAC-Adresse (optional)"
+        }
+      },
+      "manual_ip": {
+        "title": "IP-Adresse manuell eingeben",
+        "description": "Es wurde kein Gerät automatisch gefunden. Gib die IP-Adresse deines Marstek Venus E manuell ein.",
+        "data": {
+          "ip_address": "IP-Adresse",
+          "port": "UDP-Port",
+          "ble_mac": "Bluetooth-MAC-Adresse (optional)"
+        }
+      },
+      "clear_schedules": {
+        "title": "Zeitplanverwaltung übernehmen",
+        "description": "Optional kann Home Assistant die Verwaltung der manuellen Lade- und Entladezeiten übernehmen. Aktiviere diese Option nur, wenn alle zehn derzeit im Speicher hinterlegten Zeitfenster (0–9) deaktiviert werden sollen.",
+        "data": {
+          "clear_schedules": "Zeitverwaltung durch Home Assistant übernehmen – alle im Speicher hinterlegten Zeiten löschen"
+        },
+        "data_description": {
+          "clear_schedules": "Löscht beziehungsweise deaktiviert alle zehn vorhandenen manuellen Zeitfenster. Ohne Haken bleiben die gespeicherten Zeiten unverändert."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Die Verbindung zum Gerät ist fehlgeschlagen. Prüfe IP-Adresse und Port.",
+      "no_device_selected": "Wähle ein Gerät aus oder gib eine IP-Adresse ein.",
+      "invalid_ip": "Die eingegebene IP-Adresse ist ungültig.",
+      "clear_failed": "Die Zeitpläne konnten nicht gelöscht werden. Das Gerät ist möglicherweise nicht erreichbar."
+    },
+    "abort": {
+      "already_configured": "Dieses Gerät ist bereits eingerichtet.",
+      "schedule_failed": "Der Zeitplan konnte nicht gespeichert werden.",
+      "cannot_retrieve_schedules": "Die vorhandenen Zeitpläne konnten nicht abgerufen werden."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Marstek Venus E konfigurieren",
+        "description": "Konfiguriere deinen Marstek Venus E.",
+        "menu_options": {
+          "configure_manual_mode": "Manuellen Zeitplan konfigurieren",
+          "configure_update_interval": "Aktualisierungsintervall einstellen",
+          "configure_operating_modes": "Verfügbare Betriebsmodi auswählen"
+        }
+      },
+      "configure_manual_mode": {
+        "title": "Manuellen Zeitplan konfigurieren",
+        "description": "Lege einen Lade- oder Entladezeitraum für den manuellen Modus fest. {power_info}",
+        "data": {
+          "time_slot": "Zeitfenster (0–9)",
+          "start_time": "Startzeit",
+          "end_time": "Endzeit",
+          "days": "Aktive Wochentage",
+          "power": "Leistung (W)",
+          "enable": "Zeitfenster aktivieren"
+        },
+        "data_description": {
+          "time_slot": "Wähle eines der zehn möglichen Zeitfenster aus.",
+          "start_time": "Uhrzeit, zu der das Zeitfenster beginnt.",
+          "end_time": "Uhrzeit, zu der das Zeitfenster endet.",
+          "days": "Wochentage, an denen das Zeitfenster aktiv ist.",
+          "power": "Negative Werte laden den Speicher, positive Werte entladen ihn.",
+          "enable": "Aktiviert dieses Zeitfenster auf dem Gerät."
+        }
+      },
+      "configure_update_interval": {
+        "title": "Aktualisierungsintervall einstellen",
+        "description": "Lege die getrennten Abrufintervalle für schnelle Leistungswerte sowie Betriebsmodus und CT-Daten fest.",
+        "data": {
+          "fast_scan_interval": "Energiedaten und Leistung",
+          "mode_scan_interval": "Betriebsmodus und CT-Daten"
+        },
+        "data_description": {
+          "fast_scan_interval": "Intervall in Sekunden (10–300), Standard: 10 Sekunden.",
+          "mode_scan_interval": "Intervall in Sekunden (30–600), Standard: 60 Sekunden."
+        }
+      },
+      "configure_operating_modes": {
+        "title": "Verfügbare Betriebsmodi auswählen",
+        "description": "Lege fest, welche Modi in der Betriebsmodus-Auswahl angezeigt werden. Der Lagermodus hält den Akku mit einer Hysterese um 50 %: Laden mit 500 W ab 45 %, halten bei 50 % und Auto-Abbau ab 55 % bis zurück auf 50 %.",
+        "data": {
+          "enabled_modes": "Angezeigte Betriebsmodi"
+        },
+        "data_description": {
+          "enabled_modes": "Wähle mindestens einen Betriebsmodus aus."
+        }
+      }
+    },
+    "error": {
+      "select_at_least_one_mode": "Wähle mindestens einen Betriebsmodus aus."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "operating_mode": {
+        "name": "Betriebsmodus"
+      }
+    },
+    "select": {
+      "operating_mode": {
+        "name": "Betriebsmodus",
+        "state": {
+          "Auto": "Automatisch (Eigenverbrauch)",
+          "AI": "KI-Modus",
+          "Manual": "Manueller Zeitplan",
+          "Passive": "Passiver Modus"
+          ,"Storage": "Lagerung / Winter"
+        }
+      }
+    },
+    "switch": {
+      "led_ctrl": {
+        "name": "LED-Steuerung"
+      },
+      "automatic_storage": {
+        "name": "Automatische Lagerung / Winterbetrieb"
+      }
+    },
+    "button": {
+      "clear_schedules": {
+        "name": "Alle Zeitpläne löschen"
+      },
+      "refresh_battery": {
+        "name": "Batteriestatus aktualisieren"
+      },
+      "refresh_energy_status": {
+        "name": "Energiestatus aktualisieren"
+      },
+      "refresh_mode": {
+        "name": "Betriebsmodus und CT-Daten aktualisieren"
+      }
+    }
+  },
+  "services": {
+    "set_mode": {
+      "name": "Betriebsmodus einstellen",
+      "description": "Ändert den Betriebsmodus des Marstek Venus E."
+    },
+    "set_manual_schedule": {
+      "name": "Manuellen Zeitplan einstellen",
+      "description": "Konfiguriert einen manuellen Lade- oder Entladezeitraum."
+    },
+    "set_passive_mode": {
+      "name": "Passiven Modus einstellen",
+      "description": "Aktiviert den passiven Modus mit einer vorgegebenen Leistung."
+    },
+    "clear_all_schedules": {
+      "name": "Alle manuellen Zeitpläne löschen",
+      "description": "Deaktiviert alle zehn manuellen Zeitfenster (0–9)."
+    },
+    "change_operating_mode": {
+      "name": "Betriebsmodus ändern",
+      "description": "Ändert den Betriebsmodus und konfiguriert optional manuelle Zeitfenster."
+    }
+  }
+}

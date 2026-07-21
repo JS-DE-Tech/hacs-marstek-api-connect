@@ -1,0 +1,166 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configuration Marstek Venus E",
+        "description": "Démarrez le processus de configuration pour trouver et connecter votre appareil Marstek Venus E.",
+        "data": {
+          "confirm": "Continuer"
+        }
+      },
+      "discovery": {
+        "title": "Découverte des appareils",
+        "description": "Analyse de votre réseau local pour trouver des appareils Marstek..."
+      },
+      "select_device": {
+        "title": "Sélectionner un appareil",
+        "description": "{device_count} appareil(s) trouvé(s). Sélectionnez un appareil, relancez la découverte ou entrez une adresse IP manuellement.",
+        "data": {
+          "ip_address": "Appareil",
+          "port": "Port UDP (défaut: 30000)",
+          "ble_mac": "Adresse MAC Bluetooth (optionnel)"
+        }
+      },
+      "manual_ip": {
+        "title": "Entrer l'adresse IP de l'appareil",
+        "description": "Aucun appareil n'a été découvert automatiquement. Veuillez entrer l'adresse IP de votre appareil Marstek Venus E manuellement.",
+        "data": {
+          "ip_address": "Adresse IP",
+          "port": "Port UDP",
+          "ble_mac": "Adresse MAC Bluetooth (optionnel)"
+        }
+      },
+      "clear_schedules": {
+        "title": "Reinitialiser les horaires existants",
+        "description": "Voulez-vous desactiver toutes les plages horaires manuelles existantes sur l'appareil ? {info}",
+        "data": {
+          "clear_schedules": "Desactiver toutes les plages horaires manuelles existantes"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Échec de la connexion à l'appareil. Vérifiez l'adresse IP et le port.",
+      "no_device_selected": "Veuillez sélectionner un appareil ou entrer une adresse IP.",
+      "invalid_ip": "Format d'adresse IP invalide."
+    },
+    "abort": {
+      "already_configured": "L'appareil est déjà configuré.",
+      "schedule_failed": "Échec de l'enregistrement de la configuration de l'horaire.",
+      "cannot_retrieve_schedules": "Impossible de récupérer les horaires actuels de l'appareil."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configuration Marstek Venus E",
+        "description": "Configurez les paramètres de votre appareil Marstek Venus E",
+        "menu_options": {
+          "configure_manual_mode": "Configurer l'horaire du mode manuel",
+          "configure_update_interval": "Configurer l'intervalle de mise à jour"
+        }
+      },
+      "configure_manual_mode": {
+        "title": "Configurer le Planning Manuel",
+        "description": "Configurez les horaires de charge/décharge pour le mode Manuel. {power_info}",
+        "data": {
+          "time_slot": "Plage Horaire (0-9)",
+          "start_time": "Heure de Début",
+          "end_time": "Heure de Fin",
+          "days": "Jours Actifs",
+          "power": "Puissance (W)",
+          "enable": "Activer ce planning"
+        },
+        "data_description": {
+          "time_slot": "Sélectionnez la plage horaire à configurer (vous pouvez créer jusqu'à 10 plannings différents)",
+          "start_time": "Quand cet horaire doit commencer chaque jour",
+          "end_time": "Quand cet horaire doit se terminer chaque jour",
+          "days": "Sélectionnez les jours de la semaine où cet horaire est actif",
+          "power": "Puissance de la batterie: valeurs négatives pour charger (ex: -1000W), valeurs positives pour décharger (ex: 1000W)",
+          "enable": "Cochez pour activer cet horaire"
+        }
+      },
+      "configure_update_interval": {
+        "title": "Configurer l'intervalle de mise à jour",
+        "description": "Configurez séparément les intervalles des données de puissance et des données de mode/CT.",
+        "data": {
+          "fast_scan_interval": "Données énergétiques et puissance",
+          "mode_scan_interval": "Mode de fonctionnement et données CT"
+        },
+        "data_description": {
+          "fast_scan_interval": "Intervalle en secondes (10-300), valeur par défaut : 10 secondes.",
+          "mode_scan_interval": "Intervalle en secondes (30-600), valeur par défaut : 60 secondes."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "operating_mode": {
+        "name": "Mode de fonctionnement"
+      }
+    },
+    "select": {
+      "operating_mode": {
+        "name": "Mode de fonctionnement",
+        "state": {
+          "Auto": "Auto (Autoconsommation)",
+          "AI": "Mode IA",
+          "Manual": "Planning manuel",
+          "Passive": "Mode passif"
+        }
+      }
+    },
+    "switch": {
+      "led_ctrl": {
+        "name": "Contrôle LED"
+      },
+      "automatic_storage": {
+        "name": "Stockage automatique / mode hiver"
+      }
+    },
+    "button": {
+      "clear_schedules": {
+        "name": "Effacer tous les horaires"
+      },
+      "refresh_battery": {
+        "name": "Actualiser l'état de la batterie"
+      },
+      "refresh_energy_status": {
+        "name": "Actualiser l'état énergétique"
+      },
+      "refresh_mode": {
+        "name": "Actualiser le mode et données CT"
+      }
+    }
+  },
+  "services": {
+    "set_mode": {
+      "name": "Définir le mode de fonctionnement",
+      "description": "Changer le mode de fonctionnement du système Marstek Venus E"
+    },
+    "set_manual_schedule": {
+      "name": "Définir un horaire manuel",
+      "description": "Configurer un horaire de charge/décharge manuel"
+    },
+    "set_passive_mode": {
+      "name": "Définir le mode passif",
+      "description": "Définir le mode passif avec une cible de puissance spécifique"
+    },
+    "set_ble_adv": {
+      "name": "Définir la publicité Bluetooth",
+      "description": "Activer ou désactiver la publicité Bluetooth"
+    },
+    "set_led_ctrl": {
+      "name": "Contrôle LED",
+      "description": "Activer ou désactiver la LED de l'appareil"
+    },
+    "clear_all_schedules": {
+      "name": "Effacer tous les horaires manuels",
+      "description": "Désactiver tous les horaires de charge/décharge manuels (plages 0-9)"
+    },
+    "change_operating_mode": {
+      "name": "Changer le mode de fonctionnement",
+      "description": "Changer le mode de fonctionnement avec configuration optionnelle des horaires manuels (quand le mode Manuel est sélectionné)"
+    }
+  }
+}

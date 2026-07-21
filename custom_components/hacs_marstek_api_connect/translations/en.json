@@ -1,0 +1,176 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Marstek Venus E Setup",
+        "description": "Start the setup process to find and connect to your Marstek Venus E device.",
+        "data": {
+          "confirm": "Continue"
+        }
+      },
+      "discovery": {
+        "title": "Discovering Devices",
+        "description": "Scanning your local network for Marstek devices..."
+      },
+      "select_device": {
+        "title": "Select Device",
+        "description": "Found {device_count} device(s). Select a device, retry discovery, or enter an IP address manually.",
+        "data": {
+          "ip_address": "Device",
+          "port": "UDP Port (default: 30000)",
+          "ble_mac": "Bluetooth MAC Address (optional)"
+        }
+      },
+      "manual_ip": {
+        "title": "Enter Device IP Address",
+        "description": "No devices were discovered automatically. Please enter the IP address of your Marstek Venus E device manually.",
+        "data": {
+          "ip_address": "IP Address",
+          "port": "UDP Port",
+          "ble_mac": "Bluetooth MAC Address (optional)"
+        }
+      },
+      "clear_schedules": {
+        "title": "Manage schedules with Home Assistant",
+        "description": "Optionally let Home Assistant manage the manual charge and discharge schedules. Enable this only if all ten schedules currently stored on the device should be disabled.",
+        "data": {
+          "clear_schedules": "Manage schedules with Home Assistant – delete all schedules stored on the device"
+        },
+        "data_description": {
+          "clear_schedules": "Disables all ten existing manual schedule slots. Leave unchecked to keep the schedules unchanged."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to device. Check IP address and port.",
+      "no_device_selected": "Please select a device or enter an IP address.",
+      "invalid_ip": "Invalid IP address format."
+    },
+    "abort": {
+      "already_configured": "Device is already configured.",
+      "schedule_failed": "Failed to save schedule configuration.",
+      "cannot_retrieve_schedules": "Unable to retrieve current schedules from device."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Marstek Venus E Configuration",
+        "description": "Configure your Marstek Venus E device settings",
+        "menu_options": {
+          "configure_manual_mode": "Configure Manual Mode Schedule",
+          "configure_update_interval": "Configure Update Interval",
+          "configure_operating_modes": "Select available operating modes"
+        }
+      },
+      "configure_manual_mode": {
+        "title": "Configure Manual Mode Schedule",
+        "description": "Set up charging/discharging schedules for Manual mode. {power_info}",
+        "data": {
+          "time_slot": "Time Slot (0-9)",
+          "start_time": "Start Time",
+          "end_time": "End Time",
+          "days": "Active Days",
+          "power": "Power (W)",
+          "enable": "Enable this schedule"
+        },
+        "data_description": {
+          "time_slot": "Select which time slot to configure (you can create up to 10 different schedules)",
+          "start_time": "When this schedule should start each day",
+          "end_time": "When this schedule should end each day",
+          "days": "Select which days of the week this schedule is active",
+          "power": "Battery power: negative values charge (e.g., -1000W), positive values discharge (e.g., 1000W)",
+          "enable": "Check to activate this schedule"
+        }
+      },
+      "configure_update_interval": {
+        "title": "Configure Update Interval",
+        "description": "Configure separate polling intervals for live power values and operating-mode/CT data.",
+        "data": {
+          "fast_scan_interval": "Energy data and power",
+          "mode_scan_interval": "Operating mode and CT data"
+        },
+        "data_description": {
+          "fast_scan_interval": "Interval in seconds (10–300), default: 10 seconds.",
+          "mode_scan_interval": "Interval in seconds (30–600), default: 60 seconds."
+        }
+      },
+      "configure_operating_modes": {
+        "title": "Select available operating modes",
+        "description": "Choose the modes shown by the operating-mode entity. Storage mode keeps the battery around 50%: charge at 500 W from 45%, hold at 50%, and use Auto from 55% until it returns to 50%.",
+        "data": {
+          "enabled_modes": "Displayed operating modes"
+        },
+        "data_description": {
+          "enabled_modes": "Select at least one operating mode."
+        }
+      }
+    },
+    "error": {
+      "select_at_least_one_mode": "Select at least one operating mode."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "operating_mode": {
+        "name": "Operating Mode"
+      }
+    },
+    "select": {
+      "operating_mode": {
+        "name": "Operating Mode",
+        "state": {
+          "Auto": "Auto (Self-Consuming)",
+          "AI": "AI Mode",
+          "Manual": "Manual Schedule",
+          "Passive": "Passive Mode",
+          "Storage": "Storage / Winter"
+        }
+      }
+    },
+    "switch": {
+      "led_ctrl": {
+        "name": "LED Control"
+      },
+      "automatic_storage": {
+        "name": "Automatic storage / winter operation"
+      }
+    },
+    "button": {
+      "clear_schedules": {
+        "name": "Clear all schedules"
+      },
+      "refresh_battery": {
+        "name": "Refresh Battery Status"
+      },
+      "refresh_energy_status": {
+        "name": "Refresh Energy Status"
+      },
+      "refresh_mode": {
+        "name": "Refresh Mode & CT Data"
+      }
+    }
+  },
+  "services": {
+    "set_mode": {
+      "name": "Set Operating Mode",
+      "description": "Change the operating mode of the Marstek Venus E system"
+    },
+    "set_manual_schedule": {
+      "name": "Set Manual Schedule",
+      "description": "Configure a manual charging/discharging schedule"
+    },
+    "set_passive_mode": {
+      "name": "Set Passive Mode",
+      "description": "Set passive mode with a specific power target"
+    },
+    "clear_all_schedules": {
+      "name": "Clear All Manual Schedules",
+      "description": "Disable all manual charging/discharging schedules (slots 0-9)"
+    },
+    "change_operating_mode": {
+      "name": "Change Operating Mode",
+      "description": "Change the operating mode with optional manual schedule configuration (when Manual mode is selected)"
+    }
+  }
+}

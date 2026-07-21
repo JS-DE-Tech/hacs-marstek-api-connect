@@ -1,0 +1,243 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Marstek Venus E Setup",
+        "description": "Start the setup process to find and connect to your Marstek Venus E device.",
+        "data": {
+          "confirm": "Continue"
+        }
+      },
+      "discovery": {
+        "title": "Discovering Devices",
+        "description": "Scanning your local network for Marstek devices..."
+      },
+      "select_device": {
+        "title": "Select Device",
+        "description": "Found {device_count} device(s). Select a device, retry discovery, or enter an IP address manually.",
+        "data": {
+          "ip_address": "Device",
+          "port": "UDP Port (default: 30000)",
+          "ble_mac": "Bluetooth MAC Address (optional)"
+        }
+      },
+      "manual_ip": {
+        "title": "Enter Device IP Address",
+        "description": "No devices were discovered automatically. Please enter the IP address of your Marstek Venus E device manually.",
+        "data": {
+          "ip_address": "IP Address",
+          "port": "UDP Port",
+          "ble_mac": "Bluetooth MAC Address (optional)"
+        }
+      },
+      "clear_schedules": {
+        "title": "Manage schedules with Home Assistant",
+        "description": "Optionally let Home Assistant manage the manual charge and discharge schedules. Enable this only if all ten schedules currently stored on the device should be disabled.",
+        "data": {
+          "clear_schedules": "Manage schedules with Home Assistant – delete all schedules stored on the device"
+        },
+        "data_description": {
+          "clear_schedules": "Disables all ten existing manual schedule slots. Leave unchecked to keep the schedules unchanged."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to device. Check IP address and port.",
+      "no_device_selected": "Please select a device or enter an IP address.",
+      "invalid_ip": "Invalid IP address format.",
+      "clear_failed": "Failed to clear schedules. The device might not be reachable."
+    },
+    "abort": {
+      "already_configured": "Device is already configured.",
+      "schedule_failed": "Failed to save schedule configuration.",
+      "cannot_retrieve_schedules": "Unable to retrieve current schedules from device."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Marstek Venus E Configuration",
+        "description": "Configure your Marstek Venus E device settings",
+        "menu_options": {
+          "configure_manual_mode": "Configure Manual Mode Schedule",
+          "configure_update_interval": "Configure Update Interval",
+          "configure_operating_modes": "Select available operating modes"
+        }
+      },
+      "configure_manual_mode": {
+        "title": "Configure Manual Mode Schedule",
+        "description": "Set up charging/discharging schedules for Manual mode. {power_info}",
+        "data": {
+          "time_slot": "Time Slot (0-9)",
+          "start_time": "Start Time",
+          "end_time": "End Time",
+          "days": "Active Days",
+          "power": "Power (W)",
+          "enable": "Enable this schedule"
+        },
+        "data_description": {
+          "time_slot": "Select which time slot to configure (you can create up to 10 different schedules)",
+          "start_time": "When this schedule should start each day",
+          "end_time": "When this schedule should end each day",
+          "days": "Select which days of the week this schedule is active",
+          "power": "Battery power: negative values charge (e.g., -1000W), positive values discharge (e.g., 1000W)",
+          "enable": "Check to activate this schedule"
+        }
+      },
+      "configure_update_interval": {
+        "title": "Configure Update Interval",
+        "description": "Configure separate polling intervals for live power values and operating-mode/CT data.",
+        "data": {
+          "fast_scan_interval": "Energy data and power",
+          "mode_scan_interval": "Operating mode and CT data"
+        },
+        "data_description": {
+          "fast_scan_interval": "Interval in seconds (10–300), default: 10 seconds.",
+          "mode_scan_interval": "Interval in seconds (30–600), default: 60 seconds."
+        }
+      },
+      "configure_operating_modes": {
+        "title": "Select available operating modes",
+        "description": "Choose the modes shown by the operating-mode entity. Storage mode keeps the battery around 50%: charge at 500 W from 45%, hold at 50%, and use Auto from 55% until it returns to 50%.",
+        "data": {
+          "enabled_modes": "Displayed operating modes"
+        },
+        "data_description": {
+          "enabled_modes": "Select at least one operating mode."
+        }
+      }
+    },
+    "error": {
+      "select_at_least_one_mode": "Select at least one operating mode."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "operating_mode": {
+        "name": "Operating Mode"
+      }
+    },
+    "select": {
+      "operating_mode": {
+        "name": "Operating Mode",
+        "state": {
+          "Auto": "Auto (Self-Consuming)",
+          "AI": "AI Mode",
+          "Manual": "Manual Schedule",
+          "Passive": "Passive Mode",
+          "Storage": "Storage / Winter"
+        }
+      }
+    },
+    "switch": {
+      "led_ctrl": {
+        "name": "LED Control"
+      },
+      "automatic_storage": {
+        "name": "Automatic storage / winter operation"
+      }
+    },
+    "button": {
+      "clear_schedules": {
+        "name": "Clear all schedules"
+      },
+      "refresh_battery": {
+        "name": "Refresh Battery Status"
+      },
+      "refresh_energy_status": {
+        "name": "Refresh Energy Status"
+      },
+      "refresh_mode": {
+        "name": "Refresh Mode & CT Data"
+      }
+    }
+  },
+  "services": {
+    "set_mode": {
+      "name": "Set Operating Mode",
+      "description": "Change the operating mode of the Marstek Venus E system"
+    },
+    "set_manual_schedule": {
+      "name": "Set Manual Schedule",
+      "description": "Configure a manual charging/discharging schedule"
+    },
+    "set_passive_mode": {
+      "name": "Set Passive Mode",
+      "description": "Set passive mode with a specific power target"
+    },
+    "clear_all_schedules": {
+      "name": "Clear All Manual Schedules",
+      "description": "Disable all manual charging/discharging schedules (slots 0-9)"
+    },
+    "change_operating_mode": {
+      "name": "Change Operating Mode",
+      "description": "Change the operating mode with optional manual schedule configuration (when Manual mode is selected)",
+      "fields": {
+        "mode": {
+          "name": "Operating Mode",
+          "description": "Select the operating mode (Auto, AI, Manual, or Passive)"
+        },
+        "slot_0_enable": {"name": "Slot 0 - Enable", "description": "Enable time slot 0"},
+        "slot_0_start_time": {"name": "Slot 0 - Start Time", "description": "Start time for slot 0"},
+        "slot_0_end_time": {"name": "Slot 0 - End Time", "description": "End time for slot 0"},
+        "slot_0_power": {"name": "Slot 0 - Power (W)", "description": "Power for slot 0 (100-800W)"},
+        "slot_0_mode": {"name": "Slot 0 - Mode", "description": "Charging or Discharging for slot 0"},
+        "slot_0_days": {"name": "Slot 0 - Days", "description": "Days of week for slot 0 (bitmask: 1=Mon, 2=Tue, 4=Wed, 8=Thu, 16=Fri, 32=Sat, 64=Sun, 127=All)"},
+        "slot_1_enable": {"name": "Slot 1 - Enable", "description": "Enable time slot 1"},
+        "slot_1_start_time": {"name": "Slot 1 - Start Time", "description": "Start time for slot 1"},
+        "slot_1_end_time": {"name": "Slot 1 - End Time", "description": "End time for slot 1"},
+        "slot_1_power": {"name": "Slot 1 - Power (W)", "description": "Power for slot 1 (100-800W)"},
+        "slot_1_mode": {"name": "Slot 1 - Mode", "description": "Charging or Discharging for slot 1"},
+        "slot_1_days": {"name": "Slot 1 - Days", "description": "Days of week for slot 1 (bitmask: 1=Mon, 2=Tue, 4=Wed, 8=Thu, 16=Fri, 32=Sat, 64=Sun, 127=All)"},
+        "slot_2_enable": {"name": "Slot 2 - Enable", "description": "Enable time slot 2"},
+        "slot_2_start_time": {"name": "Slot 2 - Start Time", "description": "Start time for slot 2"},
+        "slot_2_end_time": {"name": "Slot 2 - End Time", "description": "End time for slot 2"},
+        "slot_2_power": {"name": "Slot 2 - Power (W)", "description": "Power for slot 2 (100-800W)"},
+        "slot_2_mode": {"name": "Slot 2 - Mode", "description": "Charging or Discharging for slot 2"},
+        "slot_2_days": {"name": "Slot 2 - Days", "description": "Days of week for slot 2 (bitmask: 1=Mon, 2=Tue, 4=Wed, 8=Thu, 16=Fri, 32=Sat, 64=Sun, 127=All)"},
+        "slot_3_enable": {"name": "Slot 3 - Enable", "description": "Enable time slot 3"},
+        "slot_3_start_time": {"name": "Slot 3 - Start Time", "description": "Start time for slot 3"},
+        "slot_3_end_time": {"name": "Slot 3 - End Time", "description": "End time for slot 3"},
+        "slot_3_power": {"name": "Slot 3 - Power (W)", "description": "Power for slot 3 (100-800W)"},
+        "slot_3_mode": {"name": "Slot 3 - Mode", "description": "Charging or Discharging for slot 3"},
+        "slot_3_days": {"name": "Slot 3 - Days", "description": "Days of week for slot 3 (bitmask: 1=Mon, 2=Tue, 4=Wed, 8=Thu, 16=Fri, 32=Sat, 64=Sun, 127=All)"},
+        "slot_4_enable": {"name": "Slot 4 - Enable", "description": "Enable time slot 4"},
+        "slot_4_start_time": {"name": "Slot 4 - Start Time", "description": "Start time for slot 4"},
+        "slot_4_end_time": {"name": "Slot 4 - End Time", "description": "End time for slot 4"},
+        "slot_4_power": {"name": "Slot 4 - Power (W)", "description": "Power for slot 4 (100-800W)"},
+        "slot_4_mode": {"name": "Slot 4 - Mode", "description": "Charging or Discharging for slot 4"},
+        "slot_4_days": {"name": "Slot 4 - Days", "description": "Days of week for slot 4 (bitmask: 1=Mon, 2=Tue, 4=Wed, 8=Thu, 16=Fri, 32=Sat, 64=Sun, 127=All)"},
+        "slot_5_enable": {"name": "Slot 5 - Enable", "description": "Enable time slot 5"},
+        "slot_5_start_time": {"name": "Slot 5 - Start Time", "description": "Start time for slot 5"},
+        "slot_5_end_time": {"name": "Slot 5 - End Time", "description": "End time for slot 5"},
+        "slot_5_power": {"name": "Slot 5 - Power (W)", "description": "Power for slot 5 (100-800W)"},
+        "slot_5_mode": {"name": "Slot 5 - Mode", "description": "Charging or Discharging for slot 5"},
+        "slot_5_days": {"name": "Slot 5 - Days", "description": "Days of week for slot 5 (bitmask: 1=Mon, 2=Tue, 4=Wed, 8=Thu, 16=Fri, 32=Sat, 64=Sun, 127=All)"},
+        "slot_6_enable": {"name": "Slot 6 - Enable", "description": "Enable time slot 6"},
+        "slot_6_start_time": {"name": "Slot 6 - Start Time", "description": "Start time for slot 6"},
+        "slot_6_end_time": {"name": "Slot 6 - End Time", "description": "End time for slot 6"},
+        "slot_6_power": {"name": "Slot 6 - Power (W)", "description": "Power for slot 6 (100-800W)"},
+        "slot_6_mode": {"name": "Slot 6 - Mode", "description": "Charging or Discharging for slot 6"},
+        "slot_6_days": {"name": "Slot 6 - Days", "description": "Days of week for slot 6 (bitmask: 1=Mon, 2=Tue, 4=Wed, 8=Thu, 16=Fri, 32=Sat, 64=Sun, 127=All)"},
+        "slot_7_enable": {"name": "Slot 7 - Enable", "description": "Enable time slot 7"},
+        "slot_7_start_time": {"name": "Slot 7 - Start Time", "description": "Start time for slot 7"},
+        "slot_7_end_time": {"name": "Slot 7 - End Time", "description": "End time for slot 7"},
+        "slot_7_power": {"name": "Slot 7 - Power (W)", "description": "Power for slot 7 (100-800W)"},
+        "slot_7_mode": {"name": "Slot 7 - Mode", "description": "Charging or Discharging for slot 7"},
+        "slot_7_days": {"name": "Slot 7 - Days", "description": "Days of week for slot 7 (bitmask: 1=Mon, 2=Tue, 4=Wed, 8=Thu, 16=Fri, 32=Sat, 64=Sun, 127=All)"},
+        "slot_8_enable": {"name": "Slot 8 - Enable", "description": "Enable time slot 8"},
+        "slot_8_start_time": {"name": "Slot 8 - Start Time", "description": "Start time for slot 8"},
+        "slot_8_end_time": {"name": "Slot 8 - End Time", "description": "End time for slot 8"},
+        "slot_8_power": {"name": "Slot 8 - Power (W)", "description": "Power for slot 8 (100-800W)"},
+        "slot_8_mode": {"name": "Slot 8 - Mode", "description": "Charging or Discharging for slot 8"},
+        "slot_8_days": {"name": "Slot 8 - Days", "description": "Days of week for slot 8 (bitmask: 1=Mon, 2=Tue, 4=Wed, 8=Thu, 16=Fri, 32=Sat, 64=Sun, 127=All)"},
+        "slot_9_enable": {"name": "Slot 9 - Enable", "description": "Enable time slot 9"},
+        "slot_9_start_time": {"name": "Slot 9 - Start Time", "description": "Start time for slot 9"},
+        "slot_9_end_time": {"name": "Slot 9 - End Time", "description": "End time for slot 9"},
+        "slot_9_power": {"name": "Slot 9 - Power (W)", "description": "Power for slot 9 (100-800W)"},
+        "slot_9_mode": {"name": "Slot 9 - Mode", "description": "Charging or Discharging for slot 9"},
+        "slot_9_days": {"name": "Slot 9 - Days", "description": "Days of week for slot 9 (bitmask: 1=Mon, 2=Tue, 4=Wed, 8=Thu, 16=Fri, 32=Sat, 64=Sun, 127=All)"}
+      }
+    }
+  }
+}
