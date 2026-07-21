@@ -10,40 +10,59 @@ Home Assistant integration for Marstek Venus E battery storage systems using the
 
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Custom%20Integration-41BDF5?logo=home-assistant&logoColor=white)](https://www.home-assistant.io/)
 [![HACS](https://img.shields.io/badge/HACS-Custom%20Repository-41BDF5)](https://hacs.xyz/)
-[![Protocol](https://img.shields.io/badge/Protocol-Local%20UDP-success)](#APIReference)
+[![Protocol](https://img.shields.io/badge/Protocol-Local%20UDP-success)](#api-reference)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](https://github.com/JS-DE-Tech/hacs-marstek-api-connect/blob/main/LICENSE)
 [![Support via PayPal](https://img.shields.io/badge/Support%20via-PayPal-0070BA?logo=paypal&logoColor=white)](https://paypal.me/JensSaffrich)
 
 Local Home Assistant HACS custom integration for the **Marstek Venus E**, including
 the Venus E 3.0. It communicates directly with the battery over the LAN without a
-cloud connection and provides local monitoring, operating-mode control and automatic
-storage/winter operation. The official Marstek app can continue to be used in parallel.
+cloud connection and provides local monitoring, operating-mode control, manual
+schedules and automatic storage/winter operation. The official Marstek app can
+continue to be used in parallel.
 
-## Projektfunktionen
+## Features
 
-- Deutsche Einrichtung, Optionen und Entitätsnamen
-- Getrennte Abfrageintervalle: Energie- und Leistungsdaten standardmäßig alle 10 Sekunden, Betriebsmodus und CT-Daten alle 60 Sekunden
-- Betriebsmodus-Auswahl mit konfigurierbaren sichtbaren Modi
-- Virtueller Modus **Lagerung / Winter** mit 45/50/55-Prozent-Hysterese
-- Persistenter Schalter **Automatische Lagerung / Winterbetrieb**
-- Sensor **Status** für Laden, Entladen, Standby und die drei Lagerungsphasen
-- Sensor **Status-Lagerung** für Beobachtung, Tageszähler und Lagerungszustand
-- LED-Steuerung als Schalter; bei der erstmaligen Einrichtung wird die LED eingeschaltet, danach bleibt die letzte Auswahl erhalten
-- Automatisches Polling ersetzt die früheren drei manuellen Aktualisierungstasten
+- Local UDP communication without a cloud dependency
+- Automatic discovery with manual IP configuration as a fallback
+- Battery, power, energy and three-phase CT monitoring
+- Operating modes: Auto, AI, Manual, Passive and virtual Storage/Winter
+- Configurable list of modes shown in the operating-mode selector
+- Ten configurable manual schedule slots
+- Automatic storage/winter controller with persistent counters
+- Separate live-data and mode/CT polling intervals
+- LED control as a regular Home Assistant switch
+- German, English and French translations
+- Native Home Assistant services for automations
 
-## Automatische Lagerung / Winterbetrieb
+Default polling intervals:
 
-Die Funktion wird über den Schalter **Automatische Lagerung / Winterbetrieb** aktiviert. Sie arbeitet unabhängig von einem festen Kalenderdatum:
+- Energy and live power data: **10 seconds**
+- Operating mode and CT data: **60 seconds**
 
-1. Die Integration beobachtet im Auto-Modus den höchsten Ladezustand jedes Kalendertages.
-2. Bleibt der Tageshöchstwert an fünf aufeinanderfolgenden gültigen Tagen unter 50 %, wird der virtuelle Lagerungsmodus aktiviert.
-3. Ein Tag ist gültig, wenn mindestens 20 Stunden zwischen erster und letzter Beobachtung liegen. Unterbrochene oder nicht aufeinanderfolgende Tage setzen die jeweilige Serie zurück.
-4. Im Lagerungsmodus wird ab 45 % mit 500 W geladen, bei 50 % gehalten und ab 55 % der Gerätemodus Auto verwendet, bis wieder 50 % erreicht sind.
-5. Erreicht der Akku an zwei aufeinanderfolgenden gültigen Lagerungstagen mindestens 99 %, wechselt die Integration zurück in Auto und beginnt erneut mit der Fünf-Tage-Beobachtung. Die 99-%-Schwelle berücksichtigt Rundungs- und Firmwaretoleranzen.
+Both intervals can be changed in the integration options.
 
-Der Zustand und die Zähler werden gespeichert und überstehen Neustarts von Home Assistant sowie ein Neuladen der Integration. Eine manuelle Auswahl des Betriebsmodus deaktiviert die automatische Lagerung, damit nicht zwei Steuerungen gleichzeitig auf das Gerät zugreifen.
+## Automatic storage / winter operation
 
-Mögliche Werte von **Status-Lagerung**:
+Enable the **Automatic storage / winter operation** switch to manage seasonal
+storage without fixed calendar dates.
+
+1. While the battery is in Auto mode, the integration records the highest state
+   of charge reached each calendar day.
+2. Storage mode starts after five consecutive valid days whose maximum state of
+   charge remained below 50%.
+3. A day is valid when at least 20 hours elapsed between its first and last
+   observation. Missing or non-consecutive days reset the current sequence.
+4. In Storage mode, the battery charges at 500 W from 45%, holds at 50%, and uses
+   the device's Auto mode from 55% until it returns to 50%.
+5. If the battery reaches at least 99% on two consecutive valid Storage days, the
+   controller returns to Auto and restarts the five-day observation period. The
+   99% threshold allows for firmware and rounding tolerances.
+
+Controller state and daily counters are stored by Home Assistant and survive
+integration reloads and restarts. Selecting an operating mode manually disables
+automatic storage to prevent competing commands.
+
+The **Status-Lagerung** sensor can report:
 
 - `Deaktiviert`
 - `Automatik – Beobachtung (n/5 Tage)`
@@ -52,611 +71,188 @@ Mögliche Werte von **Status-Lagerung**:
 - `Lagerung – Entladen`
 - `Lagerung – Vollladung erkannt (1/2 Tage)`
 
-Der normale Sensor **Status** zeigt weiterhin `Standby`, `Laden`, `Entladen` oder die jeweilige Lagerungsphase an.
+The regular **Status** sensor reports `Standby`, `Laden`, `Entladen`, or the
+current Storage phase.
 
-<!-- vscode-markdown-toc -->
-* 1. [Features](#Features)
-* 2. [Installation](#Installation)
-	* 2.1. [HACS (Recommended)](#HACSRecommended)
-	* 2.2. [Manual Installation](#ManualInstallation)
-* 3. [Configuration](#Configuration)
-	* 3.1. [Adding the Integration](#AddingtheIntegration)
-	* 3.2. [Configuring Manual Schedules](#ConfiguringManualSchedules)
-		* 3.2.1. [Method 1: Through the UI (Recommended for Single Slots)](#Method1:ThroughtheUIRecommendedforSingleSlots)
-		* 3.2.2. [Method 2: Through Automations (Recommended for Multiple Slots)](#Method2:ThroughAutomationsRecommendedforMultipleSlots)
-* 4. [Entities](#Entities)
-	* 4.1. [Sensors](#Sensors)
-		* 4.1.1. [Battery](#Battery)
-		* 4.1.2. [Solar PV](#SolarPV)
-		* 4.1.3. [Grid & Energy](#GridEnergy)
-		* 4.1.4. [CT Meter (if installed)](#CTMeterifinstalled)
-		* 4.1.5. [System](#System)
-	* 4.2. [Binary Sensors](#BinarySensors)
-	* 4.3. [Select Entities](#SelectEntities)
-* 5. [Services](#Services)
-	* 5.1. [`hacs_marstek_api_connect.set_mode`](#set-mode)
-	* 5.2. [`hacs_marstek_api_connect.set_manual_schedule`](#set-manual-schedule)
-	* 5.3. [`hacs_marstek_api_connect.set_passive_mode`](#set-passive-mode)
-* 6. [Lovelace Dashboard Examples](#LovelaceDashboardExamples)
-	* 6.1. [Battery Status Card](#BatteryStatusCard)
-	* 6.2. [Energy Flow Card](#EnergyFlowCard)
-	* 6.3. [Complete Dashboard](#CompleteDashboard)
-* 7. [Energy Dashboard Configuration](#EnergyDashboardConfiguration)
-* 8. [Automation Examples](#AutomationExamples)
-	* 8.1. [Auto-Configure All 10 Schedules When Switching to Manual Mode](#Auto-ConfigureAll10SchedulesWhenSwitchingtoManualMode)
-	* 8.2. [Charge Battery During Cheap Hours (Single Slot)](#ChargeBatteryDuringCheapHoursSingleSlot)
-	* 8.3. [Switch to Auto During Day](#SwitchtoAutoDuringDay)
-	* 8.4. [Low Battery Alert](#LowBatteryAlert)
-	* 8.5. [Maximize Self-Consumption](#MaximizeSelf-Consumption)
-* 9. [Troubleshooting](#Troubleshooting)
-	* 9.1. [Integration Not Appearing](#IntegrationNotAppearing)
-	* 9.2. [Cannot Connect to Device](#CannotConnecttoDevice)
-	* 9.3. [Missing Sensors](#MissingSensors)
-	* 9.4. [Enable Debug Logging](#EnableDebugLogging)
-* 10. [API Reference](#APIReference)
-* 11. [Support](#Support)
-* 12. [Contribution](#Contribution)
-* 13. [License](#License)
-* 14. [Disclaimer](#Disclaimer)
-* 15. [Urheber](#Urheber)
+## Installation
 
-<!-- vscode-markdown-toc-config
-	numbering=true
-	autoSave=true
-	/vscode-markdown-toc-config -->
-<!-- /vscode-markdown-toc -->
+### HACS
 
-##  1. <a name='Features'></a>Features
+1. Open HACS in Home Assistant.
+2. Open the menu in the upper-right corner and select **Custom repositories**.
+3. Add `https://github.com/JS-DE-Tech/hacs-marstek-api-connect` as an
+   **Integration** repository.
+4. Find **Marstek Venus E** in HACS and select **Download**.
+5. Restart Home Assistant.
 
-✅ **Automatic Device Discovery**
-- UDP broadcast discovery on local network
-- Automatic device detection during setup
-- Manual IP entry fallback option
+### Manual installation
 
-✅ **Complete Monitoring**
-- Battery status (SOC, temperature, capacity, charge/discharge state)
-- Solar PV generation (power, voltage, current)
-- Grid power flow (import/export)
-- Energy totals (PV, grid, load)
-- CT clamp readings (3-phase power monitoring)
-- WiFi signal strength
+1. Copy `custom_components/hacs_marstek_api_connect` into the
+   `custom_components` directory of your Home Assistant configuration.
+2. Restart Home Assistant.
 
-✅ **Full Control**
-- **UI Mode Selector**: Change modes directly from Home Assistant UI
-- **UI Schedule Configuration**: Set up charging/discharging schedules through UI (no YAML needed)
-- **Operating Modes**: Auto (Self-Consuming), AI, Manual, Passive, Storage / Winter
-- Real-time mode changes
-- Up to 10 time-based schedules (slots 0-9)
-- **Automation Support**: Configure all 10 schedules via Home Assistant automations
+## Configuration
 
-✅ **Home Assistant Integration**
-- Native Energy Dashboard support
-- Service calls for automation
-- Select entity for easy mode switching
-- Options flow for schedule configuration
-- Separate configurable polling intervals (live power default 10 seconds; mode/CT default 60 seconds)
-- Non-blocking async implementation
-- Comprehensive device information
-- Multi-language support (German, English, French)
+1. Open **Settings → Devices & services**.
+2. Select **Add integration**.
+3. Search for **Marstek Venus E**.
+4. Select a discovered device or enter its IP address manually.
+5. Keep UDP port `30000` unless the device uses a different port.
+6. Enter the Bluetooth MAC address only when required by your setup.
 
-##  2. <a name='Installation'></a>Installation
+The integration requests Auto mode after the first setup and switches on the
+device LED once. Later integration reloads preserve the last LED selection.
 
-###  2.1. <a name='HACSRecommended'></a>HACS (Recommended)
+### Integration options
 
-1. Open HACS in Home Assistant
-2. Click the three dots in the top right corner
-3. Select "Custom repositories"
-4. Add this repository URL: `https://github.com/JS-DE-Tech/hacs-marstek-api-connect`
-5. Category: `Integration`
-6. Click "Add"
-7. Find "Marstek Venus E" in HACS and click "Download"
-8. Restart Home Assistant
+Open **Settings → Devices & services → Marstek Venus E → Configure** to:
 
-###  2.2. <a name='ManualInstallation'></a>Manual Installation
+- configure manual schedule slots;
+- select the modes shown by the operating-mode entity;
+- change live energy/power and operating-mode/CT polling intervals.
 
-1. Copy the `custom_components/hacs_marstek_api_connect` folder to your Home Assistant's `custom_components` directory
-2. Restart Home Assistant
+The option to reset existing schedules disables all ten manual schedule slots on
+the device. Use it only when Home Assistant should take over schedule management.
 
-##  3. <a name='Configuration'></a>Configuration
+## Entities
 
-###  3.1. <a name='AddingtheIntegration'></a>Adding the Integration
+The exact entity IDs depend on the device name and any existing Home Assistant
+registry entries. The entity registry is authoritative.
 
-1. Go to **Settings** → **Devices & Services**
-2. Click **+ Add Integration**
-3. Search for "Marstek Venus E"
-4. **Automatic Discovery**:
-   - The integration scans your network for Marstek devices
-   - Found devices are displayed in a list
-   - Select your device and click Submit
-5. **Manual Configuration** (if no devices found):
-   - Select "Enter IP manually"
-   - Enter device IP address, port (30000), and optional BLE MAC
-   - Click Submit
+### Sensors
 
-###  3.2. <a name='ConfiguringManualSchedules'></a>Configuring Manual Schedules
+| Category | Available values |
+| --- | --- |
+| Battery | State of charge, capacity, rated capacity, temperature, charging and discharging state |
+| Power | PV power, grid power, off-grid power and total CT power |
+| Three-phase CT | Phase A, B and C power, CT input/output energy and connection state |
+| Energy totals | PV energy, grid import/export energy and load energy |
+| System | Operating mode, Status and Status-Lagerung |
 
-After adding the integration, you can configure charging/discharging schedules in two ways:
+### Controls
 
-####  3.2.1. <a name='Method1:ThroughtheUIRecommendedforSingleSlots'></a>Method 1: Through the UI (Recommended for Single Slots)
+- **Operating Mode** selector
+- **LED Control** switch
+- **Automatic storage / winter operation** switch
+- **Clear all manual schedules** button
 
-1. Go to **Settings** → **Devices & Services**
-2. Find **Marstek Venus E** integration
-3. Click **Configure** (gear icon)
-4. Select **"Configure Manual Mode Schedule"**
-5. Set up your schedule:
-   - **Time Slot**: Choose 0-9 (you can create 10 different schedules)
-   - **Start/End Time**: When the schedule runs
-   - **Active Days**: Select days of the week
-   - **Power**: Negative to charge (-1000W), positive to discharge (+1000W)
-   - **Enable**: Toggle to activate
-6. Click Submit
+The former manual refresh buttons are no longer created because the integration
+updates data automatically.
 
-####  3.2.2. <a name='Method2:ThroughAutomationsRecommendedforMultipleSlots'></a>Method 2: Through Automations (Recommended for Multiple Slots)
+## Services
 
-Configure all 10 schedule slots automatically when you switch to Manual mode using Home Assistant automations. This is the easiest way to set up complex schedules!
+All services use the `hacs_marstek_api_connect` domain.
 
-**Quick Start:**
-1. Copy the example automation from `example_automation.yaml` in this repository
-2. Paste it into your Home Assistant automations
-3. Adjust times, power levels, and days to match your needs
-4. Save and test by switching to Manual mode!
-
-**Benefits:**
-- Configure all 10 slots in one action
-- Different schedules for weekdays vs weekends
-- Dynamic schedules based on battery level, weather, or electricity prices
-- Seasonal adjustments (winter vs summer patterns)
-
-See the **[Manual Mode Automation Guide](MANUAL_MODE_AUTOMATION_GUIDE.md)** for detailed examples and best practices.
-
-##  4. <a name='Entities'></a>Entities
-
-###  4.1. <a name='Sensors'></a>Sensors
-
-####  4.1.1. <a name='Battery'></a>Battery
-- `sensor.marstek_venus_e_battery_state_of_charge` - Battery SOC (%)
-- `sensor.marstek_venus_e_battery_temperature` - Battery temperature (°C)
-- `sensor.marstek_venus_e_battery_capacity` - Current battery capacity (Wh)
-- `sensor.marstek_venus_e_battery_rated_capacity` - Rated battery capacity (Wh)
-- `sensor.marstek_venus_e_battery_power` - Battery charging/discharging power (W)
-
-####  4.1.2. <a name='SolarPV'></a>Solar PV
-- `sensor.marstek_venus_e_pv_power` - Solar generation power (W)
-- `sensor.marstek_venus_e_pv_voltage` - PV voltage (V)
-- `sensor.marstek_venus_e_pv_current` - PV current (A)
-
-####  4.1.3. <a name='GridEnergy'></a>Grid & Energy
-- `sensor.marstek_venus_e_grid_power` - Grid import/export power (W)
-- `sensor.marstek_venus_e_offgrid_power` - Off-grid power (W)
-- `sensor.marstek_venus_e_total_pv_energy` - Total PV energy generated (kWh)
-- `sensor.marstek_venus_e_total_grid_export_energy` - Total energy exported to grid (Wh)
-- `sensor.marstek_venus_e_total_grid_import_energy` - Total energy imported from grid (Wh)
-- `sensor.marstek_venus_e_total_load_energy` - Total load consumption (kWh)
-
-####  4.1.4. <a name='CTMeterifinstalled'></a>CT Meter (if installed)
-- `sensor.marstek_venus_e_phase_a_power` - Phase A power (W)
-- `sensor.marstek_venus_e_phase_b_power` - Phase B power (W)
-- `sensor.marstek_venus_e_phase_c_power` - Phase C power (W)
-- `sensor.marstek_venus_e_total_ct_power` - Total CT power (W)
-
-####  4.1.5. <a name='System'></a>System
-- `sensor.marstek_venus_e_wifi_signal_strength` - WiFi RSSI (dBm)
-- `sensor.marstek_venus_e_wifi_ssid` - Connected WiFi network
-- `sensor.marstek_venus_e_operating_mode` - Current operating mode
-- `sensor.marstek_venus_e_status` - Charging, discharging, standby, or storage phase
-- `sensor.marstek_venus_e_status_lagerung` - Automatic-storage observation and controller status
-
-###  4.2. <a name='BinarySensors'></a>Binary Sensors
-- `binary_sensor.marstek_venus_e_battery_charging` - Battery charging status
-- `binary_sensor.marstek_venus_e_battery_discharging` - Battery discharging status
-- `binary_sensor.marstek_venus_e_ct_meter_connected` - CT meter connection status
-
-###  4.3. <a name='SelectEntities'></a>Select Entities
-- `select.operating_mode` - Change operating mode (Auto, AI, Manual, Passive)
-  - **Auto**: Self-consumption optimization
-  - **AI**: Intelligent mode based on usage patterns
-  - **Manual**: Time-based schedules (configure via integration options)
-  - **Passive**: Fixed power target mode
-  - **Storage**: Virtual 45/50/55 percent storage mode
-
-### 4.4. Switch Entities
-
-- `switch.marstek_venus_e_led_control` - Device-panel LED control
-- `switch.marstek_venus_e_automatic_storage_winter_operation` - Automatic storage/winter controller
-
-Entity IDs can differ when Home Assistant has already created similarly named entities. Use the entity registry in Home Assistant as the authoritative reference.
-
-##  5. <a name='Services'></a>Services
-
-### 5.1. <a name='set-mode'></a>`hacs_marstek_api_connect.set_mode`
-
-Set the operating mode of your system.
-
-**Modes:**
-- `Auto` - Automatic operation based on device algorithms
-- `AI` - AI-optimized operation
-- `Manual` - Time-based schedule control
-- `Passive` - Follow a specific power target
+### Set operating mode
 
 ```yaml
-service: hacs_marstek_api_connect.set_mode
+action: hacs_marstek_api_connect.set_mode
 data:
-  mode: "Auto"
+  mode: Auto
 ```
 
-### 5.2. <a name='set-manual-schedule'></a>`hacs_marstek_api_connect.set_manual_schedule`
+Supported physical modes are `Auto`, `AI`, `Manual` and `Passive`. Storage is a
+virtual mode controlled by the integration.
 
-Configure a manual charging/discharging schedule.
+### Configure a manual schedule
 
 ```yaml
-service: hacs_marstek_api_connect.set_manual_schedule
+action: hacs_marstek_api_connect.set_manual_schedule
 data:
-  time_num: 0  # Time slot 0-9 (10 slots available!)
-  start_time: "09:00"
-  end_time: "17:00"  # MUST be greater than start_time
-  week_set: 127  # All days (byte-based: 1=Mon, 2=Tue, 4=Wed, 8=Thu, 16=Fri, 32=Sat, 64=Sun)
-  mode: "Charging"  # "Charging" or "Discharging"
-  power: 500  # 100-2500W magnitude (always positive)
+  time_num: 0
+  start_time: "01:00"
+  end_time: "06:00"
+  week_set: 127
+  mode: Charging
+  power: 500
   enable: true
 ```
 
-**Important Constraints:**
-- `end_time` must be greater than `start_time`
-- `mode` must be "Charging" (negative power) or "Discharging" (positive power)
-- `power` magnitude must be between 100 and 2500 watts (always positive)
-- `week_set` uses byte-based bitmask
+Constraints:
 
-**Week Set Bitmask:**
-- Monday: 1
-- Tuesday: 2
-- Wednesday: 4
-- Thursday: 8
-- Friday: 16
-- Saturday: 32
-- Sunday: 64
-- All days: 127 (sum of all)
-- Weekdays only: 31
-- Weekend only: 96
+- `time_num`: slot 0–9
+- `end_time`: must be later than `start_time`
+- `mode`: `Charging` or `Discharging`
+- `power`: magnitude from 100 to 2500 W
+- `week_set`: day bitmask from 1 to 127
 
-### 5.3. <a name='set-passive-mode'></a>`hacs_marstek_api_connect.set_passive_mode`
+Day bitmask values:
 
-Set passive mode with a power target.
+| Day | Value |
+| --- | ---: |
+| Monday | 1 |
+| Tuesday | 2 |
+| Wednesday | 4 |
+| Thursday | 8 |
+| Friday | 16 |
+| Saturday | 32 |
+| Sunday | 64 |
+| Weekdays | 31 |
+| Weekend | 96 |
+| Every day | 127 |
+
+### Set passive mode
+
+Negative power charges the battery; positive power discharges it.
 
 ```yaml
-service: hacs_marstek_api_connect.set_passive_mode
+action: hacs_marstek_api_connect.set_passive_mode
 data:
-  power: 2000  # Target power in watts
-  cd_time: 3600  # Countdown in seconds (0 = indefinite)
+  power: -500
+  cd_time: 3600
 ```
 
-##  6. <a name='LovelaceDashboardExamples'></a>Lovelace Dashboard Examples
+Set `cd_time` to `0` for an indefinite command.
 
-###  6.1. <a name='BatteryStatusCard'></a>Battery Status Card
+### Clear manual schedules
 
 ```yaml
-type: vertical-stack
-cards:
-  - type: gauge
-    entity: sensor.marstek_venus_e_battery_state_of_charge
-    name: Battery Level
-    min: 0
-    max: 100
-    needle: true
-    severity:
-      green: 60
-      yellow: 30
-      red: 0
-  
-  - type: entities
-    entities:
-      - entity: sensor.marstek_venus_e_battery_power
-        name: Battery Power
-      - entity: sensor.marstek_venus_e_battery_temperature
-        name: Temperature
-      - entity: binary_sensor.marstek_venus_e_battery_charging
-        name: Charging
-      - entity: binary_sensor.marstek_venus_e_battery_discharging
-        name: Discharging
-      - entity: sensor.marstek_venus_e_battery_capacity
-        name: Current Capacity
+action: hacs_marstek_api_connect.clear_all_schedules
 ```
 
-###  6.2. <a name='EnergyFlowCard'></a>Energy Flow Card
+This disables all ten schedule slots.
+
+## Automation example
+
+The following example returns the device to Auto mode every morning:
 
 ```yaml
-type: vertical-stack
-cards:
-  - type: horizontal-stack
-    cards:
-      - type: statistic
-        entity: sensor.marstek_venus_e_pv_power
-        name: Solar
-        icon: mdi:solar-power
-        stat_type: mean
-        period:
-          calendar:
-            period: day
-      
-      - type: statistic
-        entity: sensor.marstek_venus_e_grid_power
-        name: Grid
-        icon: mdi:transmission-tower
-        stat_type: mean
-        period:
-          calendar:
-            period: day
-      
-      - type: statistic
-        entity: sensor.marstek_venus_e_battery_power
-        name: Battery
-        icon: mdi:battery
-        stat_type: mean
-        period:
-          calendar:
-            period: day
-  
-  - type: entities
-    title: Energy Today
-    entities:
-      - entity: sensor.marstek_venus_e_total_pv_energy
-        name: PV Generated
-      - entity: sensor.marstek_venus_e_total_grid_import_energy
-        name: Grid Import
-      - entity: sensor.marstek_venus_e_total_grid_export_energy
-        name: Grid Export
-      - entity: sensor.marstek_venus_e_total_load_energy
-        name: Total Consumption
+alias: Marstek - Auto mode in the morning
+triggers:
+  - trigger: time
+    at: "07:00:00"
+actions:
+  - action: hacs_marstek_api_connect.set_mode
+    data:
+      mode: Auto
+mode: single
 ```
 
-###  6.3. <a name='CompleteDashboard'></a>Complete Dashboard
+## Troubleshooting
 
-```yaml
-title: Marstek Venus E
-type: vertical-stack
-cards:
-  # Header with mode
-  - type: entities
-    entities:
-      - entity: sensor.marstek_venus_e_operating_mode
-        name: Operating Mode
-  
-  # Battery gauge
-  - type: gauge
-    entity: sensor.marstek_venus_e_battery_state_of_charge
-    name: Battery
-    min: 0
-    max: 100
-    needle: true
-    severity:
-      green: 60
-      yellow: 30
-      red: 0
-  
-  # Power flow
-  - type: horizontal-stack
-    cards:
-      - type: entity
-        entity: sensor.marstek_venus_e_pv_power
-        name: Solar
-        icon: mdi:solar-power
-      - type: entity
-        entity: sensor.marstek_venus_e_grid_power
-        name: Grid
-        icon: mdi:transmission-tower
-      - type: entity
-        entity: sensor.marstek_venus_e_battery_power
-        name: Battery
-        icon: mdi:battery
-  
-  # Energy totals
-  - type: entities
-    title: Energy
-    entities:
-      - sensor.marstek_venus_e_total_pv_energy
-      - sensor.marstek_venus_e_total_grid_import_energy
-      - sensor.marstek_venus_e_total_grid_export_energy
-      - sensor.marstek_venus_e_total_load_energy
-  
-  # Mode control buttons
-  - type: horizontal-stack
-    cards:
-      - type: button
-        name: Auto
-        icon: mdi:autorenew
-        tap_action:
-          action: call-service
-          service: hacs_marstek_api_connect.set_mode
-          data:
-            mode: "Auto"
-      - type: button
-        name: AI
-        icon: mdi:brain
-        tap_action:
-          action: call-service
-          service: hacs_marstek_api_connect.set_mode
-          data:
-            mode: "AI"
-      - type: button
-        name: Manual
-        icon: mdi:clock-outline
-        tap_action:
-          action: call-service
-          service: hacs_marstek_api_connect.set_mode
-          data:
-            mode: "Manual"
-```
+### Integration does not appear
 
-##  7. <a name='EnergyDashboardConfiguration'></a>Energy Dashboard Configuration
+- Restart Home Assistant after installation.
+- Verify that
+  `custom_components/hacs_marstek_api_connect/manifest.json` exists.
+- Check **Settings → System → Logs** for setup errors.
 
-Add your Marstek Venus E to Home Assistant's Energy Dashboard:
+### Device cannot be reached
 
-1. Go to **Settings** → **Dashboards** → **Energy**
-2. Click **Add Consumption**:
-   - Select `sensor.marstek_venus_e_total_load_energy`
-3. Click **Add Solar Production**:
-   - Select `sensor.marstek_venus_e_total_pv_energy`
-4. Click **Add Battery**:
-   - Energy in: `sensor.marstek_venus_e_total_grid_import_energy`
-   - Energy out: `sensor.marstek_venus_e_total_grid_export_energy`
-5. Click **Add Grid Consumption**:
-   - Grid import: `sensor.marstek_venus_e_total_grid_import_energy`
-6. Click **Add Return to Grid**:
-   - Grid export: `sensor.marstek_venus_e_total_grid_export_energy`
+- Confirm the device IP address.
+- Ensure Home Assistant and the battery are on the same local network.
+- Allow UDP port `30000` between Home Assistant and the device.
+- Use manual IP configuration if UDP broadcast discovery is unavailable.
+- Ensure that the device is powered on and connected to Wi-Fi.
 
-##  8. <a name='AutomationExamples'></a>Automation Examples
+### CT meter appears disconnected
 
-###  8.1. <a name='Auto-ConfigureAll10SchedulesWhenSwitchingtoManualMode'></a>Auto-Configure All 10 Schedules When Switching to Manual Mode
+The integration prefers the current CT state reported by `EM.GetStatus`. Confirm
+that the CT meter is paired and that the device firmware exposes this endpoint.
 
-The best way to use Manual mode is to automatically configure all 10 schedule slots when you switch to it:
+### Debug logging
 
-```yaml
-automation:
-  - alias: "Marstek - Auto-Configure on Manual Mode"
-    trigger:
-      - platform: state
-        entity_id: select.operating_mode
-        to: "Manual"
-    action:
-      # Slot 0: Night charging
-      - service: hacs_marstek_api_connect.set_manual_schedule
-        data:
-          time_num: 0
-          start_time: "01:00"
-          end_time: "06:00"
-          week_set: 127  # All days
-          mode: "Charging"
-          power: 2500  # Charge at 2500W (maximum)
-          enable: true
-      
-      # Slot 1: Morning peak discharge (weekdays)
-      - service: hacs_marstek_api_connect.set_manual_schedule
-        data:
-          time_num: 1
-          start_time: "07:00"
-          end_time: "09:00"
-          week_set: 31  # Weekdays only
-          mode: "Discharging"
-          power: 700  # Discharge at 700W
-          enable: true
-      
-      # Slot 2: Evening peak discharge
-      - service: hacs_marstek_api_connect.set_manual_schedule
-        data:
-          time_num: 2
-          start_time: "18:00"
-          end_time: "22:00"
-          week_set: 127  # All days
-          mode: "Discharging"
-          power: 750  # Discharge at 750W
-          enable: true
-      
-      # ... configure remaining slots 3-9 as needed
-```
-
-**📖 See the [Manual Mode Automation Guide](MANUAL_MODE_AUTOMATION_GUIDE.md) for:**
-- Complete 10-slot configuration examples
-- Seasonal schedules (winter vs summer)
-- Dynamic schedules based on battery level
-- Price-based charging strategies
-- Weekend vs weekday patterns
-
-###  8.2. <a name='ChargeBatteryDuringCheapHoursSingleSlot'></a>Charge Battery During Cheap Hours (Single Slot)
-
-```yaml
-automation:
-  - alias: "Charge Battery at Night"
-    trigger:
-      - platform: time
-        at: "23:00:00"
-    action:
-      - service: hacs_marstek_api_connect.set_manual_schedule
-        data:
-          time_num: 0
-          start_time: "01:00"
-          end_time: "07:00"  # Must be > start_time
-          week_set: 127  # Every day
-          power: 2500  # Maximum (2500W)
-          enable: true
-      - service: hacs_marstek_api_connect.set_mode
-        data:
-          mode: "Manual"
-```
-
-###  8.3. <a name='SwitchtoAutoDuringDay'></a>Switch to Auto During Day
-
-```yaml
-automation:
-  - alias: "Auto Mode During Day"
-    trigger:
-      - platform: time
-        at: "07:00:00"
-    action:
-      - service: hacs_marstek_api_connect.set_mode
-        data:
-          mode: "Auto"
-```
-
-###  8.4. <a name='LowBatteryAlert'></a>Low Battery Alert
-
-```yaml
-automation:
-  - alias: "Low Battery Warning"
-    trigger:
-      - platform: numeric_state
-        entity_id: sensor.marstek_venus_e_battery_state_of_charge
-        below: 20
-    action:
-      - service: notify.mobile_app
-        data:
-          title: "Low Battery"
-          message: "Marstek battery is at {{ states('sensor.marstek_venus_e_battery_state_of_charge') }}%"
-```
-
-###  8.5. <a name='MaximizeSelf-Consumption'></a>Maximize Self-Consumption
-
-```yaml
-automation:
-  - alias: "Store Excess Solar"
-    trigger:
-      - platform: numeric_state
-        entity_id: sensor.marstek_venus_e_pv_power
-        above: 2000
-    condition:
-      - condition: numeric_state
-        entity_id: sensor.marstek_venus_e_battery_state_of_charge
-        below: 95
-    action:
-      - service: hacs_marstek_api_connect.set_passive_mode
-        data:
-          power: -2000  # Charge battery
-          cd_time: 0  # Until solar drops
-```
-
-##  9. <a name='Troubleshooting'></a>Troubleshooting
-
-###  9.1. <a name='IntegrationNotAppearing'></a>Integration Not Appearing
-
-1. Ensure you've restarted Home Assistant after installation
-2. Check that `custom_components/hacs_marstek_api_connect/manifest.json` exists
-3. Review Home Assistant logs for errors
-
-###  9.2. <a name='CannotConnecttoDevice'></a>Cannot Connect to Device
-
-1. Verify the device IP address is correct
-2. Ensure device and Home Assistant are on the same network
-3. Check if port 30000 (UDP) is accessible
-4. Try pinging the device: `ping <device_ip>`
-5. Verify the device is powered on and connected to WiFi
-
-###  9.3. <a name='MissingSensors'></a>Missing Sensors
-
-Some sensors depend on hardware configuration:
-- CT sensors require CT clamps to be installed
-- Check that the device firmware supports all API endpoints
-
-###  9.4. <a name='EnableDebugLogging'></a>Enable Debug Logging
-
-Add to `configuration.yaml`:
+Add the following to `configuration.yaml` and restart Home Assistant:
 
 ```yaml
 logger:
@@ -665,44 +261,31 @@ logger:
     custom_components.hacs_marstek_api_connect: debug
 ```
 
-Then check logs at **Settings** → **System** → **Logs**
+## API reference
 
-##  10. <a name='APIReference'></a>API Reference
+The integration uses the Marstek Device Local API over UDP JSON-RPC. The supplied
+reference is available at
+[docs/MarstekDeviceOpenApi 2.0.pdf](docs/MarstekDeviceOpenApi%202.0.pdf).
 
-This integration uses the Marstek Device Local API (UDP JSON-RPC). For complete API documentation, refer to the local API reference document in [`docs/MarstekDeviceOpenApi 2.0.pdf`](docs/MarstekDeviceOpenApi%202.0.pdf).
+## Support
 
-##  11. <a name='Support'></a>Support
+- [GitHub Issues](https://github.com/JS-DE-Tech/hacs-marstek-api-connect/issues)
+- [Home Assistant Community](https://community.home-assistant.io/)
+- [Support development via PayPal](https://paypal.me/JensSaffrich)
 
-- **Fehler und Verbesserungsvorschläge**: [GitHub Issues](https://github.com/JS-DE-Tech/hacs-marstek-api-connect/issues)
-- **Home Assistant Community**: [Community Forum](https://community.home-assistant.io/)
+## Contributing
 
-##  12. <a name='Contribution'></a>Contribution
+Contributions are welcome. Keep changes focused and update the documentation when
+behavior changes. Integration source files are located in
+`custom_components/hacs_marstek_api_connect`.
 
-Contributions are welcome. This repository is a Home Assistant custom integration, so the best changes are usually small, focused, and easy to validate locally before opening a pull request.
+## License
 
-### 12.1. Develop Locally
+Licensed under the [MIT License](LICENSE).
 
-1. Fork or clone the repository.
-2. Open the project in VS Code or your editor of choice.
-3. Make your changes under `custom_components/hacs_marstek_api_connect/`.
-4. Keep the code style consistent with the existing files.
-5. Update `README.md` or the documentation when behavior changes.
+Copyright © 2026 Jens Saffrich (JS TechSector).
 
-If you are adding or changing an entity, service, or config flow, check the corresponding file in `custom_components/hacs_marstek_api_connect/` and keep the names, translations, and platform registration aligned.
+## Disclaimer
 
-##  13. <a name='License'></a>License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-##  14. <a name='Disclaimer'></a>Disclaimer
-
-This is an unofficial integration. It is not affiliated with or endorsed by Marstek. Use at your own risk.
-
-## 15. <a name='Urheber'></a>Urheber
-
-- Entwicklung und Pflege: **Jens Saffrich (JS TechSector)**
-- Erstellt für Home Assistant auf Grundlage der Marstek Device Open API
-
----
-
-**Enjoy your Marstek Venus E integration! ⚡🔋**
+This is an unofficial integration and is not affiliated with or endorsed by
+Marstek. Use it at your own risk.
