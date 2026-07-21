@@ -30,6 +30,19 @@ from .udp_client import MarstekUDPClient
 _LOGGER = logging.getLogger(__name__)
 
 
+def _normalize_ipv4(value: Any) -> Any:
+    """Remove harmless leading zeroes from an IPv4 address."""
+    if not isinstance(value, str):
+        return value
+    parts = value.strip().split(".")
+    if len(parts) != 4 or any(not part.isdigit() for part in parts):
+        return value
+    numbers = [int(part, 10) for part in parts]
+    if any(number > 255 for number in numbers):
+        return value
+    return ".".join(str(number) for number in numbers)
+
+
 class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
     """Data update coordinator for Marstek Venus E."""
 
@@ -260,12 +273,24 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                     try:
                         self.device_data = await self.client.get_device_info()
                         self.device_data.setdefault(
-                            "ip", self.entry.data.get(CONF_IP_ADDRESS)
+                            "ip",
+                            _normalize_ipv4(
+                                self.entry.data.get(CONF_IP_ADDRESS)
+                            ),
                         )
+                        if "ip" in self.device_data:
+                            self.device_data["ip"] = _normalize_ipv4(
+                                self.device_data["ip"]
+                            )
                     except Exception as device_err:
                         _LOGGER.debug("Failed to get device info: %s", device_err)
                     try:
                         self.wifi_data = await self.client.get_wifi_status()
+                        for field in ("sta_ip", "sta_gate", "sta_mask", "sta_dns"):
+                            if field in self.wifi_data:
+                                self.wifi_data[field] = _normalize_ipv4(
+                                    self.wifi_data[field]
+                                )
                     except Exception as wifi_err:
                         _LOGGER.debug("Failed to get WiFi status: %s", wifi_err)
                     try:

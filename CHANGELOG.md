@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.5.1] - 2026-07-21
+
+### Fixed
+- Normalize IPv4 display values by removing leading zeroes from device IP, WiFi IP, gateway, subnet mask, and DNS addresses.
+
 ## [2.5.0] - 2026-07-21
 
 ### Added
