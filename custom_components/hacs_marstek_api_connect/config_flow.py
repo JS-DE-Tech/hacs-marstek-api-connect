@@ -23,7 +23,7 @@ from .const import (
     MODE_AUTO,
     MODE_AI,
     MODE_MANUAL,
-    MODE_PASSIVE,
+    MODE_STANDBY,
     MODE_STORAGE,
     SELECTABLE_MODES,
     VALID_MODES,
@@ -366,6 +366,10 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
         current_modes = self._config_entry.options.get(
             CONF_ENABLED_MODES, SELECTABLE_MODES
         )
+        if "Passive" in current_modes:
+            current_modes = [
+                mode for mode in current_modes if mode != "Passive"
+            ] + [MODE_STANDBY, MODE_MANUAL]
         schema = vol.Schema(
             {
                 vol.Required(
@@ -375,8 +379,8 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
                         options=[
                             {"label": "Auto", "value": MODE_AUTO},
                             {"label": "AI", "value": MODE_AI},
-                            {"label": "Manual", "value": MODE_MANUAL},
-                            {"label": "Passive", "value": MODE_PASSIVE},
+                            {"label": "Standby (0 W)", "value": MODE_STANDBY},
+                            {"label": "Manual power", "value": MODE_MANUAL},
                             {"label": "Storage / Winter", "value": MODE_STORAGE},
                         ],
                         multiple=True,

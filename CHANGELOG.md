@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.6.0] - 2026-07-21
+
+### Added
+- Persistent Operating Mode setpoint with automatic restoration when physical `ES.GetMode` feedback differs.
+- Five restore attempts at 30-second intervals and `Fehler Betriebsmodus` in the Status sensor after repeated failure.
+- User-facing Standby mode implemented as a neutral 0 W Passive command.
+- Persistent Manual power slider from -2400 W to +2400 W in 100 W steps.
+- Three-sample Standby confirmation using a ±30 W Grid Power tolerance.
+
+### Changed
+- Remove Passive from the user-facing Operating Mode selector and expose Standby and Manual power instead.
+- Use a firmware-compatible 300-second Passive countdown and renew it after 240 seconds.
+- Preserve the Manual power slider value when switching to Standby.
+- Keep physical Manual mode available for schedule services while the selector's Manual option controls direct power through Passive mode.
+
 ## [2.5.2] - 2026-07-21
 
 ### Fixed

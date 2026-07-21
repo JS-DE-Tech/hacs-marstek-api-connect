@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
@@ -13,14 +12,13 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     DOMAIN,
-    ATTR_OPERATING_MODE,
     MODE_AUTO,
     MODE_AI,
     MODE_MANUAL,
     MODE_PASSIVE,
+    MODE_STANDBY,
     MODE_STORAGE,
     SELECTABLE_MODES,
-    VALID_MODES,
     CONF_ENABLED_MODES,
 )
 from .coordinator import MarstekDataUpdateCoordinator
@@ -67,6 +65,10 @@ class MarstekOperatingModeSelect(CoordinatorEntity, SelectEntity):
         self._attr_name = "Operating Mode"
         self._attr_unique_id = f"{entry.entry_id}_operating_mode"
         configured_modes = entry.options.get(CONF_ENABLED_MODES, SELECTABLE_MODES)
+        if MODE_PASSIVE in configured_modes:
+            configured_modes = [
+                mode for mode in configured_modes if mode != MODE_PASSIVE
+            ] + [MODE_STANDBY, MODE_MANUAL]
         self._attr_options = [mode for mode in SELECTABLE_MODES if mode in configured_modes]
         self._attr_icon = "mdi:cog"
         
@@ -79,23 +81,10 @@ class MarstekOperatingModeSelect(CoordinatorEntity, SelectEntity):
     
     @property
     def current_option(self) -> str | None:
-        """Return the current operating mode."""
+        """Return the persistent operating-mode setpoint."""
         if self.coordinator.storage_mode_enabled:
             return MODE_STORAGE
-
-        # First try to get mode from mode_data (ES.GetMode response)
-        if self.coordinator.mode_data and "mode" in self.coordinator.mode_data:
-            mode = self.coordinator.mode_data["mode"]
-            if mode in VALID_MODES:
-                return mode
-        
-        # Fallback to main data (mode was copied there in coordinator update)
-        if self.coordinator.data and "mode" in self.coordinator.data:
-            mode = self.coordinator.data["mode"]
-            if mode in VALID_MODES:
-                return mode
-        
-        return None
+        return self.coordinator.desired_operating_mode
     
     async def async_select_option(self, option: str) -> None:
         """Change the operating mode.
@@ -108,6 +97,7 @@ class MarstekOperatingModeSelect(CoordinatorEntity, SelectEntity):
             return
         
         try:
+            await self.coordinator.async_set_desired_operating_mode(option)
             if self.coordinator.automatic_storage_enabled:
                 await self.coordinator.async_set_automatic_storage(
                     False, set_auto=False
@@ -116,7 +106,7 @@ class MarstekOperatingModeSelect(CoordinatorEntity, SelectEntity):
                 await self.coordinator.async_enable_storage_mode()
             else:
                 await self.coordinator.async_disable_storage_mode()
-                await self.coordinator.set_mode(option)
+                await self.coordinator.async_apply_desired_operating_mode()
             _LOGGER.info("Changed operating mode to: %s", option)
         except Exception as err:
             _LOGGER.error("Failed to set mode to %s: %s", option, err)

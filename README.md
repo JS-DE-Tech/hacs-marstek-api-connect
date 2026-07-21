@@ -25,7 +25,7 @@ continue to be used in parallel.
 - Local UDP communication without a cloud dependency
 - Automatic discovery with manual IP configuration as a fallback
 - Battery, power, energy and three-phase CT monitoring
-- Operating modes: Auto, AI, Manual, Passive and virtual Storage/Winter
+- User-facing operating modes: Auto, AI, Standby, Manual power and Storage/Winter
 - Configurable list of modes shown in the operating-mode selector
 - Ten configurable manual schedule slots
 - Automatic storage/winter controller with persistent counters
@@ -40,6 +40,30 @@ Default polling intervals:
 - Operating mode and CT data: **60 seconds**
 
 Both intervals can be changed in the integration options.
+
+## Persistent operating-mode control
+
+The **Operating Mode** selector is a persistent setpoint. The separate operating-
+mode sensor remains the physical feedback reported by `ES.GetMode`.
+
+- **Standby** sends a neutral 0 W Passive command.
+- **Manual** sends the value stored by the **Manual power** slider.
+- The slider ranges from -2400 W to +2400 W in 100 W steps.
+- Negative values charge; positive values discharge.
+- Selecting Standby does not change the stored slider value.
+- Changing the slider while Manual is active applies the new value immediately.
+
+The Venus E 3.0 requires a finite Passive countdown. Standby and Manual therefore
+use a 300-second command that the integration renews after 240 seconds.
+
+If physical feedback differs from the persistent setpoint, the integration tries
+to restore it up to five times at 30-second intervals. Standby additionally
+requires three consecutive Grid Power samples within ±30 W. After five failed
+attempts, the regular Status sensor reports `Fehler Betriebsmodus`. Selecting a
+mode again resets the error and retry counter.
+
+Storage and automatic winter operation manage their own internal mode changes and
+temporarily take priority over this supervision.
 
 ## Automatic storage / winter operation
 
@@ -133,6 +157,7 @@ registry entries. The entity registry is authoritative.
 ### Controls
 
 - **Operating Mode** selector
+- **Manual power** slider (-2400 W to +2400 W)
 - **LED Control** switch
 - **Automatic storage / winter operation** switch
 - **Clear all manual schedules** button
@@ -152,8 +177,10 @@ data:
   mode: Auto
 ```
 
-Supported physical modes are `Auto`, `AI`, `Manual` and `Passive`. Storage is a
-virtual mode controlled by the integration.
+Supported physical API modes are `Auto`, `AI`, `Manual` and `Passive`. In the
+user-facing selector, **Standby** and **Manual power** are both implemented through
+the physical Passive mode. The physical Manual API mode remains available to the
+schedule services. Storage is a virtual mode controlled by the integration.
 
 ### Configure a manual schedule
 

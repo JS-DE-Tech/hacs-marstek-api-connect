@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.storage import Store
 
-from .const import DOMAIN, MODE_AUTO
+from .const import DOMAIN, MODE_AUTO, MODE_STORAGE
 from .coordinator import MarstekDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -21,6 +21,7 @@ PLATFORMS: list[Platform] = [
     Platform.SELECT,
     Platform.BUTTON,
     Platform.SWITCH,
+    Platform.NUMBER,
 ]
 
 SERVICES = (
@@ -64,11 +65,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ConfigEntryNotReady: If device is not ready
     """
     coordinator = MarstekDataUpdateCoordinator(hass, entry)
-    # Always start from the device's regular automatic mode. This also clears
-    # a virtual storage mode that may have been active before Home Assistant or
-    # the integration restarted.
+    # Restore the persistent operating-mode setpoint. Automatic winter mode
+    # remains responsible for its own internal Auto/Storage transitions.
     await coordinator.async_load_storage_mode()
     await coordinator.async_load_automatic_storage()
+    await coordinator.async_load_desired_operating_mode()
     coordinator.storage_mode_enabled = False
     coordinator._storage_phase = None
     
@@ -78,10 +79,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady(f"Unable to connect to device: {err}") from err
 
     try:
-        await coordinator.set_mode(MODE_AUTO)
+        if coordinator.automatic_storage_enabled:
+            await coordinator.set_mode(MODE_AUTO)
+        elif coordinator.desired_operating_mode == MODE_STORAGE:
+            await coordinator.async_enable_storage_mode()
+        else:
+            await coordinator.async_apply_desired_operating_mode()
     except Exception as err:
         _LOGGER.warning(
-            "Could not set Auto mode while starting the integration: %s", err
+            "Could not restore operating mode %s while starting: %s",
+            coordinator.desired_operating_mode,
+            err,
         )
 
     try:
@@ -90,6 +98,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.warning(
             "Could not start automatic storage controller: %s", err
         )
+
+    coordinator.async_start_mode_enforcement()
 
     initial_setup_store = Store(
         hass, 1, f"{DOMAIN}.{entry.entry_id}.initial_setup"

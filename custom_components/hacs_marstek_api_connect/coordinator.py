@@ -20,6 +20,11 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     MODE_AUTO,
+    MODE_PASSIVE,
+    MODE_MANUAL,
+    MODE_STANDBY,
+    MODE_STORAGE,
+    SELECTABLE_MODES,
     STORAGE_AUTO_START_SOC,
     STORAGE_CHARGE_POWER,
     STORAGE_CHARGE_START_SOC,
@@ -103,6 +108,20 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self._automatic_storage = Store(
             hass, 1, f"{DOMAIN}.{entry.entry_id}.automatic_storage"
         )
+        self.desired_operating_mode = MODE_AUTO
+        self._mode_enforcement_ready = False
+        self._mode_enforcement_failures = 0
+        self._mode_enforcement_error = False
+        self._mode_enforcement_next_attempt: datetime | None = None
+        self._desired_mode_store = Store(
+            hass, 1, f"{DOMAIN}.{entry.entry_id}.desired_operating_mode"
+        )
+        self.manual_power = 0
+        self._standby_zero_samples = 0
+        self._manual_power_store = Store(
+            hass, 1, f"{DOMAIN}.{entry.entry_id}.manual_power"
+        )
+        self._passive_keepalive_due: datetime | None = None
 
     async def async_load_storage_mode(self) -> None:
         """Restore whether the virtual storage mode was active."""
@@ -128,6 +147,80 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             self._tracking_last_seen = datetime.fromisoformat(last_seen) if last_seen else None
         except (TypeError, ValueError):
             self._reset_day_tracking()
+
+    async def async_load_desired_operating_mode(self) -> None:
+        """Restore the persistent operating-mode setpoint."""
+        stored = await self._desired_mode_store.async_load() or {}
+        mode = stored.get("mode", MODE_AUTO)
+        if mode == MODE_PASSIVE:
+            mode = MODE_STANDBY
+        self.desired_operating_mode = (
+            mode if mode in (*SELECTABLE_MODES,) else MODE_AUTO
+        )
+        power_data = await self._manual_power_store.async_load() or {}
+        try:
+            power = int(power_data.get("power", 0))
+        except (TypeError, ValueError):
+            power = 0
+        self.manual_power = max(-2400, min(2400, power))
+
+    async def async_set_desired_operating_mode(self, mode: str) -> None:
+        """Persist a new operating-mode setpoint and reset enforcement."""
+        if mode not in SELECTABLE_MODES:
+            raise ValueError(f"Unsupported desired operating mode: {mode}")
+        self.desired_operating_mode = mode
+        self._mode_enforcement_failures = 0
+        self._mode_enforcement_error = False
+        self._mode_enforcement_next_attempt = None
+        self._standby_zero_samples = 0
+        await self._desired_mode_store.async_save({"mode": mode})
+        self.async_update_listeners()
+
+    async def async_set_manual_power(self, power: int) -> None:
+        """Persist the manual power target and apply it while Manual is active."""
+        if power < -2400 or power > 2400:
+            raise ValueError("Manual power must be between -2400 and 2400 W")
+        self.manual_power = int(power)
+        await self._manual_power_store.async_save({"power": self.manual_power})
+        self._mode_enforcement_failures = 0
+        self._mode_enforcement_error = False
+        self._mode_enforcement_next_attempt = None
+        if (
+            self.desired_operating_mode == MODE_MANUAL
+            and not self.automatic_storage_enabled
+            and not self.storage_mode_enabled
+        ):
+            await self.async_apply_desired_operating_mode()
+        self.async_update_listeners()
+
+    async def async_apply_desired_operating_mode(self) -> None:
+        """Apply the persistent UI mode to the physical device."""
+        if self.desired_operating_mode == MODE_STANDBY:
+            self._standby_zero_samples = 0
+            result = await self.client.set_passive_mode(power=0, cd_time=300)
+            physical_mode = MODE_PASSIVE
+        elif self.desired_operating_mode == MODE_MANUAL:
+            result = await self.client.set_passive_mode(
+                power=self.manual_power, cd_time=300
+            )
+            physical_mode = MODE_PASSIVE
+        else:
+            await self.set_mode(self.desired_operating_mode)
+            return
+
+        if result.get("set_result") is False:
+            raise ValueError(
+                f"Device rejected {self.desired_operating_mode} mode"
+            )
+        self._passive_keepalive_due = datetime.now() + timedelta(seconds=240)
+        self.mode_data["mode"] = physical_mode
+        if self.data is not None:
+            self.data["mode"] = physical_mode
+        self.async_update_listeners()
+
+    def async_start_mode_enforcement(self) -> None:
+        """Enable operating-mode supervision after startup setup."""
+        self._mode_enforcement_ready = True
 
     def _automatic_storage_data(self) -> dict[str, Any]:
         """Return serializable automatic-storage state."""
@@ -179,6 +272,8 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
     @property
     def operation_status(self) -> str | None:
         """Return a user-facing charge/discharge/storage status."""
+        if self._mode_enforcement_error:
+            return "Fehler Betriebsmodus"
         if self.storage_mode_enabled:
             return {
                 "charging": "Lagerung - Laden",
@@ -364,11 +459,101 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             # slower ES.GetMode updates.
             if "mode" in self.mode_data:
                 data["mode"] = self.mode_data["mode"]
+
+            await self._async_enforce_operating_mode()
             
             return data
         except Exception as err:
             _LOGGER.error("Failed to get device data: %s", err)
             raise UpdateFailed(f"Failed to update data: {err}")
+
+    async def _async_enforce_operating_mode(self) -> None:
+        """Restore the persistent mode setpoint after external changes."""
+        if (
+            not self._mode_enforcement_ready
+            or self.automatic_storage_enabled
+            or self.storage_mode_enabled
+            or self.desired_operating_mode == MODE_STORAGE
+        ):
+            return
+
+        actual_mode = self.mode_data.get("mode")
+        if actual_mode is None:
+            return
+        expected_mode = (
+            MODE_PASSIVE
+            if self.desired_operating_mode in (MODE_STANDBY, MODE_MANUAL)
+            else self.desired_operating_mode
+        )
+
+        if self.desired_operating_mode == MODE_STANDBY and actual_mode == MODE_PASSIVE:
+            try:
+                grid_power = float(self.data.get("ongrid_power"))
+            except (TypeError, ValueError):
+                grid_power = None
+            if grid_power is not None and abs(grid_power) <= 30:
+                self._standby_zero_samples += 1
+                if self._standby_zero_samples < 3:
+                    return
+            else:
+                self._standby_zero_samples = 0
+        elif actual_mode != expected_mode:
+            self._standby_zero_samples = 0
+
+        mode_confirmed = actual_mode == expected_mode
+        standby_confirmed = (
+            self.desired_operating_mode != MODE_STANDBY
+            or self._standby_zero_samples >= 3
+        )
+        now = datetime.now()
+        if mode_confirmed and standby_confirmed:
+            self._mode_enforcement_failures = 0
+            self._mode_enforcement_error = False
+            self._mode_enforcement_next_attempt = None
+            if (
+                self.desired_operating_mode in (MODE_STANDBY, MODE_MANUAL)
+                and self._passive_keepalive_due is not None
+                and now >= self._passive_keepalive_due
+            ):
+                try:
+                    await self.async_apply_desired_operating_mode()
+                except Exception as err:
+                    _LOGGER.warning("Passive keepalive failed: %s", err)
+            return
+
+        if (
+            self._mode_enforcement_next_attempt is not None
+            and now < self._mode_enforcement_next_attempt
+        ):
+            return
+        if self._mode_enforcement_failures >= 5:
+            self._mode_enforcement_error = True
+            return
+
+        self._mode_enforcement_failures += 1
+        self._mode_enforcement_next_attempt = now + timedelta(seconds=30)
+        attempt = self._mode_enforcement_failures
+        _LOGGER.warning(
+            "Operating mode differs from setpoint (actual=%s, desired=%s); "
+            "restore attempt %d/5",
+            actual_mode,
+            self.desired_operating_mode,
+            attempt,
+        )
+        try:
+            await self.async_apply_desired_operating_mode()
+        except Exception as err:
+            _LOGGER.warning(
+                "Operating-mode restore attempt %d/5 failed: %s", attempt, err
+            )
+            if attempt >= 5:
+                self._mode_enforcement_error = True
+                self.async_update_listeners()
+            return
+
+        self._mode_enforcement_failures = 0
+        self._mode_enforcement_error = False
+        self._mode_enforcement_next_attempt = None
 
     async def async_shutdown(self) -> None:
         """Shutdown the coordinator."""
@@ -380,7 +565,13 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         Args:
             mode: Operating mode
         """
-        result = await self.client.set_mode(mode)
+        # Venus E 3.0 does not reliably accept Passive without a passive_cfg.
+        # Local test: request a neutral 0 W target with a firmware-compatible
+        # countdown; the persistent UI modes refresh it before expiry.
+        if mode == MODE_PASSIVE:
+            result = await self.client.set_passive_mode(power=0, cd_time=300)
+        else:
+            result = await self.client.set_mode(mode)
         if result.get("set_result") is False:
             raise ValueError(f"Device rejected operating mode {mode}")
 
@@ -393,9 +584,16 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             self.data["mode"] = mode
         self.async_update_listeners()
 
-        await asyncio.sleep(3)
-        confirmed_mode_data = await self.client.get_energy_system_mode()
-        confirmed_mode = confirmed_mode_data.get("mode")
+        attempts = 5 if mode == MODE_PASSIVE else 1
+        delay = 2 if mode == MODE_PASSIVE else 3
+        confirmed_mode_data: dict[str, Any] = {}
+        confirmed_mode = None
+        for _attempt in range(attempts):
+            await asyncio.sleep(delay)
+            confirmed_mode_data = await self.client.get_energy_system_mode()
+            confirmed_mode = confirmed_mode_data.get("mode")
+            if confirmed_mode == mode:
+                break
         if confirmed_mode != mode:
             _LOGGER.warning(
                 "Device did not confirm operating mode %s (reported: %s)",
@@ -457,6 +655,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         await self._storage.async_save({"enabled": False})
         await self._automatic_storage.async_save(self._automatic_storage_data())
         if set_auto:
+            await self.async_set_desired_operating_mode(MODE_AUTO)
             await self.set_mode(MODE_AUTO)
         self.async_update_listeners()
 

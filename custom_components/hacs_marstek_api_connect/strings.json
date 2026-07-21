@@ -123,8 +123,8 @@
         "state": {
           "Auto": "Auto (Self-Consuming)",
           "AI": "AI Mode",
-          "Manual": "Manual Schedule",
-          "Passive": "Passive Mode",
+          "Standby": "Standby (0 W)",
+          "Manual": "Manual power",
           "Storage": "Storage / Winter"
         }
       }
@@ -135,6 +135,11 @@
       },
       "automatic_storage": {
         "name": "Automatic storage / winter operation"
+      }
+    },
+    "number": {
+      "manual_power": {
+        "name": "Manual power"
       }
     },
     "button": {

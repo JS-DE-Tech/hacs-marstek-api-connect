@@ -105,8 +105,9 @@
         "state": {
           "Auto": "Auto (Autoconsommation)",
           "AI": "Mode IA",
-          "Manual": "Planning manuel",
-          "Passive": "Mode passif"
+          "Standby": "Veille (0 W)",
+          "Manual": "Puissance manuelle",
+          "Storage": "Stockage / Hiver"
         }
       }
     },
@@ -116,6 +117,11 @@
       },
       "automatic_storage": {
         "name": "Stockage automatique / mode hiver"
+      }
+    },
+    "number": {
+      "manual_power": {
+        "name": "Puissance manuelle"
       }
     },
     "button": {
