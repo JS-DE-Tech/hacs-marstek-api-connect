@@ -669,7 +669,7 @@ Then check logs at **Settings** → **System** → **Logs**
 
 ##  10. <a name='APIReference'></a>API Reference
 
-This integration uses the Marstek Device Local API (UDP JSON-RPC). For complete API documentation, refer to the local API reference document in [`doc/MarstekDeviceOpenApi 2.0.pdf`](doc/MarstekDeviceOpenApi%202.0.pdf).
+This integration uses the Marstek Device Local API (UDP JSON-RPC). For complete API documentation, refer to the local API reference document in [`docs/MarstekDeviceOpenApi 2.0.pdf`](docs/MarstekDeviceOpenApi%202.0.pdf).
 
 ##  11. <a name='Support'></a>Support
 
