@@ -10,7 +10,7 @@ Home Assistant integration for Marstek Venus E battery storage systems using the
 
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Custom%20Integration-41BDF5?logo=home-assistant&logoColor=white)](https://www.home-assistant.io/)
 [![HACS](https://img.shields.io/badge/HACS-Custom%20Repository-41BDF5)](https://hacs.xyz/)
-[![Protocol](https://img.shields.io/badge/protocol-local%20UDP-success)](#APIReference)
+[![Protocol](https://img.shields.io/badge/Protocol-Local%20UDP-success)](#APIReference)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](https://github.com/JS-DE-Tech/hacs-marstek-api-connect/blob/main/LICENSE)
 [![Support via PayPal](https://img.shields.io/badge/Support%20via-PayPal-0070BA?logo=paypal&logoColor=white)](https://paypal.me/JensSaffrich)
 
