@@ -86,7 +86,7 @@ class MarstekSensor(CoordinatorEntity, SensorEntity):
         
         # Set state class for energy sensors
         if sensor_config.get("state_class"):
-            self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+            self._attr_state_class = SensorStateClass(sensor_config["state_class"])
         
         # Create unique ID
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_{sensor_id}"
@@ -113,6 +113,16 @@ class MarstekSensor(CoordinatorEntity, SensorEntity):
             return self.coordinator.operation_status
         if source == "derived" and self.sensor_id == "storage_status":
             return self.coordinator.automatic_storage_status
+        if source == "derived" and self.sensor_id == "battery_power":
+            return self.coordinator.battery_power
+        if source == "derived" and self.sensor_id == "battery_charge_power":
+            power = self.coordinator.battery_power
+            return max(0, power) if power is not None else None
+        if source == "derived" and self.sensor_id == "battery_discharge_power":
+            power = self.coordinator.battery_power
+            return max(0, -power) if power is not None else None
+        if source == "derived" and self.sensor_id == "battery_available_capacity":
+            return self.coordinator.battery_available_capacity
         
         # Check appropriate data source based on sensor configuration
         if source == "battery" and self.coordinator.battery_data:
@@ -123,6 +133,10 @@ class MarstekSensor(CoordinatorEntity, SensorEntity):
             # From ES.GetMode (manual refresh)
             if attr_path in self.coordinator.mode_data:
                 return self.coordinator.mode_data[attr_path]
+        elif source == "wifi" and self.coordinator.wifi_data:
+            return self.coordinator.wifi_data.get(attr_path)
+        elif source == "device" and self.coordinator.device_data:
+            return self.coordinator.device_data.get(attr_path)
         elif source == "auto" and self.coordinator.data:
             # From ES.GetStatus (automatic updates)
             if attr_path in self.coordinator.data:

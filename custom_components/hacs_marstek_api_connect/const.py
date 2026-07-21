@@ -114,6 +114,70 @@ SENSORS_BATTERY_MANUAL: Final = {
         "attr": "rated_capacity",
         "source": "battery",  # From Bat.GetStatus
     },
+    "battery_voltage": {
+        "name": "Battery Voltage",
+        "unit": "V",
+        "icon": "mdi:sine-wave",
+        "device_class": "voltage",
+        "state_class": "measurement",
+        "attr": "bat_voltage",
+        "source": "battery",
+    },
+    "battery_current": {
+        "name": "Battery Current",
+        "unit": "A",
+        "icon": "mdi:current-dc",
+        "device_class": "current",
+        "state_class": "measurement",
+        "attr": "bat_current",
+        "source": "battery",
+    },
+    "battery_error_code": {
+        "name": "Battery Error Code",
+        "icon": "mdi:alert-circle-outline",
+        "device_class": None,
+        "attr": "error_code",
+        "source": "battery",
+    },
+}
+
+SENSORS_BATTERY_DERIVED: Final = {
+    "battery_power": {
+        "name": "Battery Power",
+        "unit": "W",
+        "icon": "mdi:battery-charging-medium",
+        "device_class": "power",
+        "state_class": "measurement",
+        "attr": None,
+        "source": "derived",
+    },
+    "battery_charge_power": {
+        "name": "Battery Charge Power",
+        "unit": "W",
+        "icon": "mdi:battery-arrow-up",
+        "device_class": "power",
+        "state_class": "measurement",
+        "attr": None,
+        "source": "derived",
+    },
+    "battery_discharge_power": {
+        "name": "Battery Discharge Power",
+        "unit": "W",
+        "icon": "mdi:battery-arrow-down",
+        "device_class": "power",
+        "state_class": "measurement",
+        "attr": None,
+        "source": "derived",
+    },
+    "battery_available_capacity": {
+        "name": "Battery Available Capacity",
+        "unit": "Wh",
+        "icon": "mdi:battery-plus",
+        "device_class": "energy_storage",
+        "state_class": "measurement",
+        "attr": None,
+        "source": "derived",
+    },
 }
 
 # Binary sensors from Bat.GetStatus (manual refresh button)
@@ -248,6 +312,98 @@ SENSORS_CT: Final = {
         "attr": "total_power",
         "source": "mode",  # From ES.GetMode
     },
+    "ct_parse_state": {
+        "name": "CT Parse State",
+        "icon": "mdi:meter-electric-outline",
+        "device_class": None,
+        "attr": "parse_state",
+        "source": "mode",
+    },
+}
+
+SENSORS_WIFI: Final = {
+    "wifi_signal_strength": {
+        "name": "WiFi Signal Strength",
+        "unit": "dBm",
+        "icon": "mdi:wifi",
+        "device_class": "signal_strength",
+        "state_class": "measurement",
+        "attr": "rssi",
+        "source": "wifi",
+    },
+    "wifi_ssid": {
+        "name": "WiFi SSID",
+        "icon": "mdi:wifi-settings",
+        "device_class": None,
+        "attr": "ssid",
+        "source": "wifi",
+    },
+    "wifi_ip_address": {
+        "name": "WiFi IP Address",
+        "icon": "mdi:ip-network",
+        "device_class": None,
+        "attr": "sta_ip",
+        "source": "wifi",
+    },
+    "wifi_gateway": {
+        "name": "WiFi Gateway",
+        "icon": "mdi:router-network",
+        "device_class": None,
+        "attr": "sta_gate",
+        "source": "wifi",
+    },
+    "wifi_subnet_mask": {
+        "name": "WiFi Subnet Mask",
+        "icon": "mdi:ip-network-outline",
+        "device_class": None,
+        "attr": "sta_mask",
+        "source": "wifi",
+    },
+    "wifi_dns_server": {
+        "name": "WiFi DNS Server",
+        "icon": "mdi:dns",
+        "device_class": None,
+        "attr": "sta_dns",
+        "source": "wifi",
+    },
+}
+
+SENSORS_DEVICE: Final = {
+    "device_model": {
+        "name": "Device Model",
+        "icon": "mdi:battery-unknown",
+        "device_class": None,
+        "attr": "device",
+        "source": "device",
+    },
+    "firmware_version": {
+        "name": "Firmware Version",
+        "icon": "mdi:chip",
+        "device_class": None,
+        "attr": "ver",
+        "source": "device",
+    },
+    "bluetooth_mac_address": {
+        "name": "Bluetooth MAC Address",
+        "icon": "mdi:bluetooth",
+        "device_class": None,
+        "attr": "ble_mac",
+        "source": "device",
+    },
+    "wifi_mac_address": {
+        "name": "WiFi MAC Address",
+        "icon": "mdi:wifi-cog",
+        "device_class": None,
+        "attr": "wifi_mac",
+        "source": "device",
+    },
+    "device_ip_address": {
+        "name": "Device IP Address",
+        "icon": "mdi:ip",
+        "device_class": None,
+        "attr": "ip",
+        "source": "device",
+    },
 }
 
 # CT meter binary sensor from ES.GetMode
@@ -290,10 +446,13 @@ SENSORS_SYSTEM: Final = {
 ALL_SENSORS: Final = {
     **SENSORS_BATTERY,
     **SENSORS_BATTERY_MANUAL,
+    **SENSORS_BATTERY_DERIVED,
     **SENSORS_PV,
     **SENSORS_GRID,
     **SENSORS_ENERGY,
     **SENSORS_CT,
+    **SENSORS_WIFI,
+    **SENSORS_DEVICE,
     **SENSORS_SYSTEM,
 }
 
@@ -302,6 +461,13 @@ ALL_SENSORS: Final = {
 BINARY_SENSORS: Final = {
     **SENSORS_BATTERY_BINARY,
     **SENSORS_CT_BINARY,
+    "bluetooth_connected": {
+        "name": "Bluetooth Connected",
+        "icon": "mdi:bluetooth-connect",
+        "device_class": "connectivity",
+        "attr": "state",
+        "source": "ble",
+    },
 }
 
 # Week Set Bitmask

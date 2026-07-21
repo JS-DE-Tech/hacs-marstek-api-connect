@@ -62,6 +62,9 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         # Storage for manual API call results
         self.battery_data: dict[str, Any] = {}
         self.mode_data: dict[str, Any] = {}
+        self.device_data: dict[str, Any] = {}
+        self.wifi_data: dict[str, Any] = {}
+        self.ble_data: dict[str, Any] = {}
         # Track last battery data update (every 60 minutes instead of 30 seconds)
         self._last_battery_update: datetime | None = None
         self._battery_update_interval = timedelta(minutes=60)
@@ -194,6 +197,32 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             return "Entladen"
         return "Standby"
 
+    @property
+    def battery_power(self) -> float | None:
+        """Return normalized battery power (positive charging)."""
+        value = self.data.get("bat_power") if self.data else None
+        if value is None and self.data:
+            value = self.data.get("ongrid_power")
+            if value is not None:
+                try:
+                    return -float(value)
+                except (TypeError, ValueError):
+                    return None
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def battery_available_capacity(self) -> float | None:
+        """Return remaining charge capacity in Wh."""
+        soc = self.data.get("bat_soc") if self.data else None
+        rated = self.battery_data.get("rated_capacity")
+        try:
+            return round((100 - float(soc)) * float(rated) / 100, 1)
+        except (TypeError, ValueError):
+            return None
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from device.
         
@@ -217,6 +246,32 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             if self._last_battery_update is None or (now - self._last_battery_update) >= self._battery_update_interval:
                 try:
                     self.battery_data = await self.client.get_battery_status()
+                    for field in ("bat_voltage", "bat_current"):
+                        value = self.battery_data.get(field)
+                        if value is not None:
+                            try:
+                                self.battery_data[field] = round(
+                                    float(value) / 100, 2
+                                )
+                            except (TypeError, ValueError):
+                                _LOGGER.debug(
+                                    "Invalid %s value received: %r", field, value
+                                )
+                    try:
+                        self.device_data = await self.client.get_device_info()
+                        self.device_data.setdefault(
+                            "ip", self.entry.data.get(CONF_IP_ADDRESS)
+                        )
+                    except Exception as device_err:
+                        _LOGGER.debug("Failed to get device info: %s", device_err)
+                    try:
+                        self.wifi_data = await self.client.get_wifi_status()
+                    except Exception as wifi_err:
+                        _LOGGER.debug("Failed to get WiFi status: %s", wifi_err)
+                    try:
+                        self.ble_data = await self.client.get_ble_status()
+                    except Exception as ble_err:
+                        _LOGGER.debug("Failed to get Bluetooth status: %s", ble_err)
                     self._last_battery_update = now
                     _LOGGER.debug("Battery data updated: %s", self.battery_data)
                 except Exception as battery_err:

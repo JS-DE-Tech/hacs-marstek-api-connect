@@ -123,10 +123,11 @@ registry entries. The entity registry is authoritative.
 
 | Category | Available values |
 | --- | --- |
-| Battery | State of charge, capacity, rated capacity, temperature, charging and discharging state |
+| Battery | State of charge, capacity, rated and available capacity, temperature, voltage, current, power, charge/discharge power, error code and charging/discharging state |
 | Power | PV power, grid power, off-grid power and total CT power |
-| Three-phase CT | Phase A, B and C power, CT input/output energy and connection state |
+| Three-phase CT | Phase A, B and C power, CT input/output energy, parser state and connection state |
 | Energy totals | PV energy, grid import/export energy and load energy |
+| Network and device | WiFi signal and network details, device model, firmware, MAC addresses, device IP and Bluetooth connection |
 | System | Operating mode, Status and Status-Lagerung |
 
 ### Controls

@@ -108,6 +108,9 @@ class MarstekBinarySensor(CoordinatorEntity, BinarySensorEntity):
             if attr_path in self.coordinator.mode_data:
                 value = self.coordinator.mode_data[attr_path]
                 return bool(value)
+        elif source == "ble" and self.coordinator.ble_data:
+            value = self.coordinator.ble_data.get(attr_path)
+            return value == "connect"
         elif source == "auto" and self.coordinator.data:
             # From ES.GetStatus (automatic updates)
             if attr_path in self.coordinator.data:

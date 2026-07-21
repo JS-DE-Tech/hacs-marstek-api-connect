@@ -142,6 +142,10 @@ class MarstekUDPClient:
         """
         return await self._send_request("Wifi.GetStatus", {"id": 0})
 
+    async def get_ble_status(self) -> dict[str, Any]:
+        """Get Bluetooth connection status."""
+        return await self._send_request("BLE.GetStatus", {"id": 0})
+
     async def get_energy_system_status(self) -> dict[str, Any]:
         """Get energy system status.
         

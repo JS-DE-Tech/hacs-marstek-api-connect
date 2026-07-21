@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.5.0] - 2026-07-21
+
+### Added
+- Battery voltage, current, error code, available capacity, normalized battery power, charge power, and discharge power sensors.
+- WiFi signal, SSID, IP, gateway, subnet, and DNS diagnostic sensors.
+- Device model, firmware, Bluetooth MAC, WiFi MAC, and device IP diagnostic sensors.
+- CT parse-state sensor and Bluetooth connectivity binary sensor.
+
+### Changed
+- Poll static device, WiFi, Bluetooth, and detailed battery information once per hour.
+- Normalize battery voltage and current from centi-units and fall back to Venus E 3.0 grid power when battery power is omitted.
+
 ## [2.4.0] - 2026-07-21
 
 ### Added
