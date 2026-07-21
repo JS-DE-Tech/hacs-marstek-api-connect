@@ -83,6 +83,7 @@ SENSORS_BATTERY: Final = {
         "unit": "%",
         #"icon": "mdi:battery-percent",
         "device_class": "battery",
+        "state_class": "measurement",
         "attr": "bat_soc",
         "source": "auto",  # From ES.GetStatus
     },
@@ -214,6 +215,7 @@ SENSORS_GRID: Final = {
         "unit": "W",
         "icon": "mdi:transmission-tower",
         "device_class": "power",
+        "state_class": "measurement",
         "attr": "ongrid_power",  # Direct field from ES.GetStatus
     },
     "offgrid_power": {

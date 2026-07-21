@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.5.2] - 2026-07-21
+
+### Fixed
+- Add the `measurement` state class to Grid Power so it can be selected by Home Assistant statistics and battery power-flow configuration.
+- Add the `measurement` state class to Battery State of Charge so it is accepted as the Energy Dashboard battery state-of-charge sensor.
+
 ## [2.5.1] - 2026-07-21
 
 ### Fixed
