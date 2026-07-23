@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.7.0] - 2026-07-23
+
+### Added
+- Configurable Home Assistant solar-power source with separate turn-on and
+  turn-off thresholds and time-weighted averaging periods.
+- Solar Power sensor and Solar Surplus binary sensor.
+- Automatic-winter phases for solar testing and confirmed solar charging.
+- Ten-minute cooldown after an unsuccessful five-minute solar test.
+- Winter-phase device-mode confirmation and automatic correction.
+
+### Changed
+- Use normalized Battery Power as the primary charge/discharge signal with a
+  +/-100 W deadband.
+- Renew 0 W and 500 W Passive storage commands with a firmware-compatible
+  300-second countdown.
+- Count a full-charge day only after a real solar-assisted charge from 95% or
+  below to at least 99%.
+- Restore the persisted automatic-winter phase safely after integration reloads.
+- Check persistent normal operating modes every two minutes and require physical
+  `ES.GetMode` confirmation after correction.
+
 ## [2.6.0] - 2026-07-21
 
 ### Added

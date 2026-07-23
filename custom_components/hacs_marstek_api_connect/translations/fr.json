@@ -56,7 +56,9 @@
         "description": "Configurez les paramètres de votre appareil Marstek Venus E",
         "menu_options": {
           "configure_manual_mode": "Configurer l'horaire du mode manuel",
-          "configure_update_interval": "Configurer l'intervalle de mise à jour"
+          "configure_update_interval": "Configurer l'intervalle de mise à jour",
+          "configure_operating_modes": "Sélectionner les modes disponibles",
+          "configure_solar_surplus": "Configurer le surplus solaire"
         }
       },
       "configure_manual_mode": {
@@ -90,6 +92,17 @@
           "fast_scan_interval": "Intervalle en secondes (10-300), valeur par défaut : 10 secondes.",
           "mode_scan_interval": "Intervalle en secondes (30-600), valeur par défaut : 60 secondes."
         }
+      },
+      "configure_solar_surplus": {
+        "title": "Configurer le surplus solaire",
+        "description": "Sélectionnez le capteur de puissance solaire et configurez les seuils moyens utilisés par le mode hiver automatique.",
+        "data": {
+          "solar_power_entity": "Entité de puissance solaire",
+          "solar_surplus_on_w": "Surplus solaire au-dessus de",
+          "solar_surplus_off_w": "Fin du surplus en dessous de",
+          "solar_surplus_on_minutes": "Période moyenne d'activation",
+          "solar_surplus_off_minutes": "Période moyenne de désactivation"
+        }
       }
     }
   },
@@ -97,6 +110,14 @@
     "sensor": {
       "operating_mode": {
         "name": "Mode de fonctionnement"
+      },
+      "solar_power": {
+        "name": "Puissance solaire"
+      }
+    },
+    "binary_sensor": {
+      "solar_surplus": {
+        "name": "Surplus solaire"
       }
     },
     "select": {

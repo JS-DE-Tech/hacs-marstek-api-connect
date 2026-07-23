@@ -28,7 +28,7 @@ continue to be used in parallel.
 - User-facing operating modes: Auto, AI, Standby, Manual power and Storage/Winter
 - Configurable list of modes shown in the operating-mode selector
 - Ten configurable manual schedule slots
-- Automatic storage/winter controller with persistent counters
+- Automatic storage/winter controller with configurable solar-surplus detection
 - Separate live-data and mode/CT polling intervals
 - LED control as a regular Home Assistant switch
 - German, English and French translations
@@ -56,8 +56,8 @@ mode sensor remains the physical feedback reported by `ES.GetMode`.
 The Venus E 3.0 requires a finite Passive countdown. Standby and Manual therefore
 use a 300-second command that the integration renews after 240 seconds.
 
-If physical feedback differs from the persistent setpoint, the integration tries
-to restore it up to five times at 30-second intervals. Standby additionally
+If physical feedback differs from the persistent setpoint, the integration checks
+it every two minutes and tries to restore it up to five times. Standby additionally
 requires three consecutive Grid Power samples within ±30 W. After five failed
 attempts, the regular Status sensor reports `Fehler Betriebsmodus`. Selecting a
 mode again resets the error and retry counter.
@@ -76,15 +76,30 @@ storage without fixed calendar dates.
    charge remained below 50%.
 3. A day is valid when at least 20 hours elapsed between its first and last
    observation. Missing or non-consecutive days reset the current sequence.
-4. In Storage mode, the battery charges at 500 W from 45%, holds at 50%, and uses
-   the device's Auto mode from 55% until it returns to 50%.
-5. If the battery reaches at least 99% on two consecutive valid Storage days, the
-   controller returns to Auto and restarts the five-day observation period. The
-   99% threshold allows for firmware and rounding tolerances.
+4. At or below 45%, Storage charges at 500 W up to 50%; at 50% it uses a
+   renewed 0 W Passive command to hold the battery.
+5. A configured Home Assistant solar-power entity is evaluated with
+   time-weighted moving averages. The default hysteresis detects surplus at a
+   two-minute average of at least 1400 W and clears it at a five-minute average
+   below 1000 W.
+6. Detected surplus starts a five-minute Auto-mode solar test. A two-minute
+   average Battery Power above +100 W confirms charging. Below -100 W means
+   discharging; values between those thresholds are neutral.
+7. A failed solar test has a ten-minute cooldown. Auto may use stored energy down
+   to 50%, after which the battery returns to 0 W Passive holding.
+8. A full-charge day requires confirmed solar charging from 95% or below to at
+   least 99%. After two consecutive valid full-charge days, the controller
+   returns to Auto observation and restarts the five-day counter.
 
 Controller state and daily counters are stored by Home Assistant and survive
 integration reloads and restarts. Selecting an operating mode manually disables
 automatic storage to prevent competing commands.
+
+Configure the solar source under **Configure → Configure solar surplus**. The
+source must be a Home Assistant power sensor using W or kW. If it is missing,
+unknown, unavailable, or has an unsupported unit, surplus is false and no new
+solar test starts. The solar entities remain informational outside automatic
+winter operation.
 
 The **Status-Lagerung** sensor can report:
 
@@ -92,6 +107,8 @@ The **Status-Lagerung** sensor can report:
 - `Automatik – Beobachtung (n/5 Tage)`
 - `Lagerung – Laden`
 - `Lagerung – Halten`
+- `Lagerung – Solarprüfung`
+- `Lagerung – Solarladen`
 - `Lagerung – Entladen`
 - `Lagerung – Vollladung erkannt (1/2 Tage)`
 
@@ -134,6 +151,8 @@ Open **Settings → Devices & services → Marstek Venus E → Configure** to:
 - configure manual schedule slots;
 - select the modes shown by the operating-mode entity;
 - change live energy/power and operating-mode/CT polling intervals.
+- select a solar-power entity and configure surplus thresholds and averaging
+  periods.
 
 The option to reset existing schedules disables all ten manual schedule slots on
 the device. Use it only when Home Assistant should take over schedule management.
@@ -148,11 +167,11 @@ registry entries. The entity registry is authoritative.
 | Category | Available values |
 | --- | --- |
 | Battery | State of charge, capacity, rated and available capacity, temperature, voltage, current, power, charge/discharge power, error code and charging/discharging state |
-| Power | PV power, grid power, off-grid power and total CT power |
+| Power | PV power, configured solar power, grid power, off-grid power and total CT power |
 | Three-phase CT | Phase A, B and C power, CT input/output energy, parser state and connection state |
 | Energy totals | PV energy, grid import/export energy and load energy |
 | Network and device | WiFi signal and network details, device model, firmware, MAC addresses, device IP and Bluetooth connection |
-| System | Operating mode, Status and Status-Lagerung |
+| System | Operating mode, Status, Status-Lagerung and solar-surplus state |
 
 ### Controls
 

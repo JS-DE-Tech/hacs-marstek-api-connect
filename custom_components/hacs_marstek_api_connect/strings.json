@@ -61,7 +61,8 @@
         "menu_options": {
           "configure_manual_mode": "Configure Manual Mode Schedule",
           "configure_update_interval": "Configure Update Interval",
-          "configure_operating_modes": "Select available operating modes"
+          "configure_operating_modes": "Select available operating modes",
+          "configure_solar_surplus": "Configure solar surplus"
         }
       },
       "configure_manual_mode": {
@@ -105,16 +106,36 @@
         "data_description": {
           "enabled_modes": "Select at least one operating mode."
         }
+      },
+      "configure_solar_surplus": {
+        "title": "Configure solar surplus",
+        "description": "Select the Home Assistant power sensor used by automatic storage and configure time-weighted surplus thresholds.",
+        "data": {
+          "solar_power_entity": "Solar power entity",
+          "solar_surplus_on_w": "Solar surplus above",
+          "solar_surplus_off_w": "Solar surplus ends below",
+          "solar_surplus_on_minutes": "Turn-on average period",
+          "solar_surplus_off_minutes": "Turn-off average period"
+        }
       }
     },
     "error": {
-      "select_at_least_one_mode": "Select at least one operating mode."
+      "select_at_least_one_mode": "Select at least one operating mode.",
+      "solar_on_must_exceed_off": "The turn-on threshold must be higher than the turn-off threshold."
     }
   },
   "entity": {
     "sensor": {
       "operating_mode": {
         "name": "Operating Mode"
+      },
+      "solar_power": {
+        "name": "Solar Power"
+      }
+    },
+    "binary_sensor": {
+      "solar_surplus": {
+        "name": "Solar Surplus"
       }
     },
     "select": {

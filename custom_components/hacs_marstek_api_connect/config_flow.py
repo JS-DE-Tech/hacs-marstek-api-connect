@@ -17,7 +17,16 @@ from .const import (
     CONF_FAST_SCAN_INTERVAL,
     CONF_MODE_SCAN_INTERVAL,
     CONF_ENABLED_MODES,
+    CONF_SOLAR_POWER_ENTITY,
+    CONF_SOLAR_SURPLUS_OFF_MINUTES,
+    CONF_SOLAR_SURPLUS_OFF_W,
+    CONF_SOLAR_SURPLUS_ON_MINUTES,
+    CONF_SOLAR_SURPLUS_ON_W,
     CONF_TIMEOUT,
+    DEFAULT_SOLAR_SURPLUS_OFF_MINUTES,
+    DEFAULT_SOLAR_SURPLUS_OFF_W,
+    DEFAULT_SOLAR_SURPLUS_ON_MINUTES,
+    DEFAULT_SOLAR_SURPLUS_ON_W,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     MODE_AUTO,
@@ -346,7 +355,101 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
                 "configure_manual_mode",
                 "configure_update_interval",
                 "configure_operating_modes",
+                "configure_solar_surplus",
             ],
+        )
+
+    async def async_step_configure_solar_surplus(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure the solar source and surplus hysteresis."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if (
+                user_input[CONF_SOLAR_SURPLUS_ON_W]
+                <= user_input[CONF_SOLAR_SURPLUS_OFF_W]
+            ):
+                errors["base"] = "solar_on_must_exceed_off"
+            else:
+                new_options = {**self._config_entry.options, **user_input}
+                if not user_input.get(CONF_SOLAR_POWER_ENTITY):
+                    new_options.pop(CONF_SOLAR_POWER_ENTITY, None)
+                return self.async_create_entry(title="", data=new_options)
+
+        options = self._config_entry.options
+        schema_fields: dict[Any, Any] = {}
+        solar_entity = options.get(CONF_SOLAR_POWER_ENTITY)
+        entity_key = vol.Optional(CONF_SOLAR_POWER_ENTITY)
+        if solar_entity:
+            entity_key = vol.Optional(
+                CONF_SOLAR_POWER_ENTITY, default=solar_entity
+            )
+        schema_fields[entity_key] = selector.EntitySelector(
+            selector.EntitySelectorConfig(
+                domain="sensor",
+                device_class="power",
+            )
+        )
+        for key, default, minimum, maximum, step, unit in (
+            (
+                CONF_SOLAR_SURPLUS_ON_W,
+                options.get(
+                    CONF_SOLAR_SURPLUS_ON_W, DEFAULT_SOLAR_SURPLUS_ON_W
+                ),
+                0,
+                20000,
+                100,
+                "W",
+            ),
+            (
+                CONF_SOLAR_SURPLUS_OFF_W,
+                options.get(
+                    CONF_SOLAR_SURPLUS_OFF_W, DEFAULT_SOLAR_SURPLUS_OFF_W
+                ),
+                0,
+                20000,
+                100,
+                "W",
+            ),
+            (
+                CONF_SOLAR_SURPLUS_ON_MINUTES,
+                options.get(
+                    CONF_SOLAR_SURPLUS_ON_MINUTES,
+                    DEFAULT_SOLAR_SURPLUS_ON_MINUTES,
+                ),
+                1,
+                30,
+                1,
+                "min",
+            ),
+            (
+                CONF_SOLAR_SURPLUS_OFF_MINUTES,
+                options.get(
+                    CONF_SOLAR_SURPLUS_OFF_MINUTES,
+                    DEFAULT_SOLAR_SURPLUS_OFF_MINUTES,
+                ),
+                1,
+                60,
+                1,
+                "min",
+            ),
+        ):
+            schema_fields[vol.Required(key, default=default)] = (
+                selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=minimum,
+                        max=maximum,
+                        step=step,
+                        unit_of_measurement=unit,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                )
+            )
+
+        return self.async_show_form(
+            step_id="configure_solar_surplus",
+            data_schema=vol.Schema(schema_fields),
+            errors=errors,
         )
 
     async def async_step_configure_operating_modes(

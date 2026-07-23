@@ -123,6 +123,8 @@ class MarstekSensor(CoordinatorEntity, SensorEntity):
             return max(0, -power) if power is not None else None
         if source == "derived" and self.sensor_id == "battery_available_capacity":
             return self.coordinator.battery_available_capacity
+        if source == "derived" and self.sensor_id == "solar_power":
+            return self.coordinator.solar_power
         
         # Check appropriate data source based on sensor configuration
         if source == "battery" and self.coordinator.battery_data:
@@ -151,7 +153,19 @@ class MarstekSensor(CoordinatorEntity, SensorEntity):
         Returns:
             True if data is available
         """
+        if self.sensor_id == "solar_power":
+            return (
+                self.coordinator.last_update_success
+                and self.coordinator.solar_power is not None
+            )
         return self.coordinator.last_update_success
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return source information for the configured solar sensor."""
+        if self.sensor_id != "solar_power":
+            return None
+        return {"source_entity": self.coordinator.solar_power_entity}
 
     @callback
     def _handle_coordinator_update(self) -> None:

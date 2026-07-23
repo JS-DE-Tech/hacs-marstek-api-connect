@@ -61,7 +61,8 @@
         "menu_options": {
           "configure_manual_mode": "Manuellen Zeitplan konfigurieren",
           "configure_update_interval": "Aktualisierungsintervall einstellen",
-          "configure_operating_modes": "Verfügbare Betriebsmodi auswählen"
+          "configure_operating_modes": "Verfügbare Betriebsmodi auswählen",
+          "configure_solar_surplus": "Solarüberschuss konfigurieren"
         }
       },
       "configure_manual_mode": {
@@ -105,16 +106,36 @@
         "data_description": {
           "enabled_modes": "Wähle mindestens einen Betriebsmodus aus."
         }
+      },
+      "configure_solar_surplus": {
+        "title": "Solarüberschuss konfigurieren",
+        "description": "Wähle den Home-Assistant-Leistungssensor für den automatischen Winterbetrieb und konfiguriere die zeitgewichteten Grenzwerte.",
+        "data": {
+          "solar_power_entity": "Solarleistungs-Entität",
+          "solar_surplus_on_w": "Solarüberschuss ab",
+          "solar_surplus_off_w": "Solarüberschuss endet unter",
+          "solar_surplus_on_minutes": "Einschaltzeitraum",
+          "solar_surplus_off_minutes": "Ausschaltzeitraum"
+        }
       }
     },
     "error": {
-      "select_at_least_one_mode": "Wähle mindestens einen Betriebsmodus aus."
+      "select_at_least_one_mode": "Wähle mindestens einen Betriebsmodus aus.",
+      "solar_on_must_exceed_off": "Die Einschaltgrenze muss über der Ausschaltgrenze liegen."
     }
   },
   "entity": {
     "sensor": {
       "operating_mode": {
         "name": "Betriebsmodus"
+      },
+      "solar_power": {
+        "name": "Solarleistung"
+      }
+    },
+    "binary_sensor": {
+      "solar_surplus": {
+        "name": "Solarüberschuss"
       }
     },
     "select": {

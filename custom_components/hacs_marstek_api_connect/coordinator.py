@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -17,6 +18,15 @@ from .const import (
     CONF_IP_ADDRESS,
     CONF_MODE_SCAN_INTERVAL,
     CONF_PORT,
+    CONF_SOLAR_POWER_ENTITY,
+    CONF_SOLAR_SURPLUS_OFF_MINUTES,
+    CONF_SOLAR_SURPLUS_OFF_W,
+    CONF_SOLAR_SURPLUS_ON_MINUTES,
+    CONF_SOLAR_SURPLUS_ON_W,
+    DEFAULT_SOLAR_SURPLUS_OFF_MINUTES,
+    DEFAULT_SOLAR_SURPLUS_OFF_W,
+    DEFAULT_SOLAR_SURPLUS_ON_MINUTES,
+    DEFAULT_SOLAR_SURPLUS_ON_W,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     MODE_AUTO,
@@ -29,6 +39,9 @@ from .const import (
     STORAGE_CHARGE_POWER,
     STORAGE_CHARGE_START_SOC,
     STORAGE_TARGET_SOC,
+    BATTERY_POWER_THRESHOLD_W,
+    SOLAR_CHECK_COOLDOWN_SECONDS,
+    SOLAR_CHECK_MAX_SECONDS,
 )
 from .udp_client import MarstekUDPClient
 
@@ -103,6 +116,9 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self._full_soc_days = 0
         self._tracking_day: date | None = None
         self._tracking_max_soc: float | None = None
+        self._tracking_min_soc: float | None = None
+        self._tracking_had_solar_charge = False
+        self._tracking_full_charge_event = False
         self._tracking_first_seen: datetime | None = None
         self._tracking_last_seen: datetime | None = None
         self._automatic_storage = Store(
@@ -113,6 +129,8 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self._mode_enforcement_failures = 0
         self._mode_enforcement_error = False
         self._mode_enforcement_next_attempt: datetime | None = None
+        self._last_mode_enforcement_check: datetime | None = None
+        self._mode_enforcement_interval = timedelta(minutes=2)
         self._desired_mode_store = Store(
             hass, 1, f"{DOMAIN}.{entry.entry_id}.desired_operating_mode"
         )
@@ -122,6 +140,36 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             hass, 1, f"{DOMAIN}.{entry.entry_id}.manual_power"
         )
         self._passive_keepalive_due: datetime | None = None
+        self.solar_power_entity = entry.options.get(CONF_SOLAR_POWER_ENTITY)
+        self.solar_surplus_on_w = float(
+            entry.options.get(
+                CONF_SOLAR_SURPLUS_ON_W, DEFAULT_SOLAR_SURPLUS_ON_W
+            )
+        )
+        self.solar_surplus_off_w = float(
+            entry.options.get(
+                CONF_SOLAR_SURPLUS_OFF_W, DEFAULT_SOLAR_SURPLUS_OFF_W
+            )
+        )
+        self.solar_surplus_on_minutes = int(
+            entry.options.get(
+                CONF_SOLAR_SURPLUS_ON_MINUTES,
+                DEFAULT_SOLAR_SURPLUS_ON_MINUTES,
+            )
+        )
+        self.solar_surplus_off_minutes = int(
+            entry.options.get(
+                CONF_SOLAR_SURPLUS_OFF_MINUTES,
+                DEFAULT_SOLAR_SURPLUS_OFF_MINUTES,
+            )
+        )
+        self.solar_power: float | None = None
+        self.solar_surplus = False
+        self._solar_samples: deque[tuple[datetime, float]] = deque()
+        self._battery_power_samples: deque[tuple[datetime, float]] = deque()
+        self._solar_check_started: datetime | None = None
+        self._solar_check_cooldown_until: datetime | None = None
+        self._storage_command_due: datetime | None = None
 
     async def async_load_storage_mode(self) -> None:
         """Restore whether the virtual storage mode was active."""
@@ -135,16 +183,33 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         stored = await self._automatic_storage.async_load() or {}
         self.automatic_storage_enabled = bool(stored.get("enabled", False))
         self._automatic_controller_state = stored.get("state", "observing")
+        stored_phase = stored.get("storage_phase")
+        self._storage_phase = (
+            "holding" if stored_phase == "solar_check" else stored_phase
+        )
         self._low_soc_days = int(stored.get("low_soc_days", 0))
         self._full_soc_days = int(stored.get("full_soc_days", 0))
         try:
             tracking_day = stored.get("tracking_day")
             self._tracking_day = date.fromisoformat(tracking_day) if tracking_day else None
             self._tracking_max_soc = stored.get("tracking_max_soc")
+            self._tracking_min_soc = stored.get("tracking_min_soc")
+            self._tracking_had_solar_charge = bool(
+                stored.get("tracking_had_solar_charge", False)
+            )
+            self._tracking_full_charge_event = bool(
+                stored.get("tracking_full_charge_event", False)
+            )
             first_seen = stored.get("tracking_first_seen")
             last_seen = stored.get("tracking_last_seen")
             self._tracking_first_seen = datetime.fromisoformat(first_seen) if first_seen else None
             self._tracking_last_seen = datetime.fromisoformat(last_seen) if last_seen else None
+            cooldown_until = stored.get("solar_check_cooldown_until")
+            self._solar_check_cooldown_until = (
+                datetime.fromisoformat(cooldown_until)
+                if cooldown_until
+                else None
+            )
         except (TypeError, ValueError):
             self._reset_day_tracking()
 
@@ -212,7 +277,30 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             raise ValueError(
                 f"Device rejected {self.desired_operating_mode} mode"
             )
+
+        # Do not treat the accepted UDP command as proof that the device kept
+        # the mode. Confirm the physical Passive mode through ES.GetMode.
+        confirmed_mode_data: dict[str, Any] = {}
+        confirmed_mode = None
+        for _attempt in range(5):
+            await asyncio.sleep(2)
+            confirmed_mode_data = await self.client.get_energy_system_mode()
+            confirmed_mode = confirmed_mode_data.get("mode")
+            if confirmed_mode == physical_mode:
+                break
+        if confirmed_mode != physical_mode:
+            if confirmed_mode_data:
+                self.mode_data.update(confirmed_mode_data)
+                if self.data is not None and confirmed_mode is not None:
+                    self.data["mode"] = confirmed_mode
+                self.async_update_listeners()
+            raise ValueError(
+                f"Device did not confirm {self.desired_operating_mode} mode "
+                f"(reported: {confirmed_mode})"
+            )
+
         self._passive_keepalive_due = datetime.now() + timedelta(seconds=240)
+        self.mode_data.update(confirmed_mode_data)
         self.mode_data["mode"] = physical_mode
         if self.data is not None:
             self.data["mode"] = physical_mode
@@ -227,12 +315,21 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         return {
             "enabled": self.automatic_storage_enabled,
             "state": self._automatic_controller_state,
+            "storage_phase": self._storage_phase,
             "low_soc_days": self._low_soc_days,
             "full_soc_days": self._full_soc_days,
             "tracking_day": self._tracking_day.isoformat() if self._tracking_day else None,
             "tracking_max_soc": self._tracking_max_soc,
+            "tracking_min_soc": self._tracking_min_soc,
+            "tracking_had_solar_charge": self._tracking_had_solar_charge,
+            "tracking_full_charge_event": self._tracking_full_charge_event,
             "tracking_first_seen": self._tracking_first_seen.isoformat() if self._tracking_first_seen else None,
             "tracking_last_seen": self._tracking_last_seen.isoformat() if self._tracking_last_seen else None,
+            "solar_check_cooldown_until": (
+                self._solar_check_cooldown_until.isoformat()
+                if self._solar_check_cooldown_until
+                else None
+            ),
         }
 
     def _schedule_automatic_storage_save(self) -> None:
@@ -245,6 +342,9 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         """Start or clear daily SOC tracking."""
         self._tracking_day = now.date() if now else None
         self._tracking_max_soc = None
+        self._tracking_min_soc = None
+        self._tracking_had_solar_charge = False
+        self._tracking_full_charge_event = False
         self._tracking_first_seen = now
         self._tracking_last_seen = now
 
@@ -256,16 +356,14 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         if self._automatic_controller_state == "observing":
             return f"Automatik - Beobachtung ({self._low_soc_days}/5 Tage)"
 
-        today_full = bool(
-            self._tracking_max_soc is not None
-            and self._tracking_max_soc >= 99
-        )
-        if today_full:
+        if self._tracking_full_charge_event:
             count = min(2, self._full_soc_days + 1)
             return f"Lagerung - Vollladung erkannt ({count}/2 Tage)"
         return {
             "charging": "Lagerung - Laden",
             "holding": "Lagerung - Halten",
+            "solar_check": "Lagerung - Solarprüfung",
+            "solar_charging": "Lagerung - Solarladen",
             "auto": "Lagerung - Entladen",
         }.get(self._storage_phase, "Lagerung - Halten")
 
@@ -278,6 +376,8 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             return {
                 "charging": "Lagerung - Laden",
                 "holding": "Lagerung - Halten",
+                "solar_check": "Lagerung - Solarprüfung",
+                "solar_charging": "Lagerung - Solarladen",
                 "auto": "Lagerung - Entladen",
             }.get(self._storage_phase)
 
@@ -331,6 +431,128 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _time_weighted_average(
+        samples: deque[tuple[datetime, float]],
+        now: datetime,
+        window: timedelta,
+    ) -> float | None:
+        """Return a time-weighted average once the full window is covered."""
+        if not samples:
+            return None
+        start = now - window
+        if samples[0][0] > start:
+            return None
+
+        points = list(samples)
+        current_value = points[0][1]
+        cursor = start
+        total = 0.0
+        for timestamp, value in points[1:]:
+            if timestamp <= start:
+                current_value = value
+                continue
+            if timestamp > now:
+                break
+            total += current_value * (timestamp - cursor).total_seconds()
+            cursor = timestamp
+            current_value = value
+        total += current_value * (now - cursor).total_seconds()
+        seconds = window.total_seconds()
+        return total / seconds if seconds > 0 else None
+
+    def _append_sample(
+        self,
+        samples: deque[tuple[datetime, float]],
+        now: datetime,
+        value: float,
+        keep: timedelta,
+    ) -> None:
+        """Append a sample while retaining one value before the window."""
+        samples.append((now, value))
+        cutoff = now - keep
+        while len(samples) >= 2 and samples[1][0] <= cutoff:
+            samples.popleft()
+
+    def _update_solar_measurement(self, now: datetime) -> None:
+        """Read and evaluate the configured Home Assistant solar sensor."""
+        if not self.solar_power_entity:
+            self.solar_power = None
+            self.solar_surplus = False
+            self._solar_samples.clear()
+            return
+
+        state = self.hass.states.get(self.solar_power_entity)
+        if state is None or state.state in ("unknown", "unavailable"):
+            self.solar_power = None
+            self.solar_surplus = False
+            self._solar_samples.clear()
+            return
+        try:
+            value = float(state.state)
+        except (TypeError, ValueError):
+            self.solar_power = None
+            self.solar_surplus = False
+            self._solar_samples.clear()
+            return
+
+        unit = str(state.attributes.get("unit_of_measurement", "W")).lower()
+        if unit == "kw":
+            value *= 1000
+        elif unit != "w":
+            self.solar_power = None
+            self.solar_surplus = False
+            self._solar_samples.clear()
+            return
+
+        self.solar_power = round(value, 1)
+        keep = timedelta(
+            minutes=max(
+                self.solar_surplus_on_minutes,
+                self.solar_surplus_off_minutes,
+            )
+        )
+        self._append_sample(self._solar_samples, now, value, keep)
+        if not self.solar_surplus:
+            average = self._time_weighted_average(
+                self._solar_samples,
+                now,
+                timedelta(minutes=self.solar_surplus_on_minutes),
+            )
+            if average is not None and average >= self.solar_surplus_on_w:
+                self.solar_surplus = True
+        else:
+            average = self._time_weighted_average(
+                self._solar_samples,
+                now,
+                timedelta(minutes=self.solar_surplus_off_minutes),
+            )
+            if average is not None and average < self.solar_surplus_off_w:
+                self.solar_surplus = False
+
+    def _record_battery_power(
+        self, data: dict[str, Any], now: datetime
+    ) -> float | None:
+        """Record normalized battery power, positive while charging."""
+        raw = data.get("bat_power")
+        invert = False
+        if raw is None:
+            raw = data.get("ongrid_power")
+            invert = True
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return None
+        if invert:
+            value = -value
+        self._append_sample(
+            self._battery_power_samples,
+            now,
+            value,
+            timedelta(minutes=5),
+        )
+        return value
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from device.
         
@@ -343,14 +565,18 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             # Get energy system status - this includes all live power metrics.
             data = await self.client.get_energy_system_status()
+            now = datetime.now()
+            self._update_solar_measurement(now)
+            self._record_battery_power(data, now)
 
             if self._automatic_controller_ready:
                 await self._async_update_automatic_storage(data.get("bat_soc"))
             if self.storage_mode_enabled:
-                await self._async_update_storage_mode(data.get("bat_soc"))
+                await self._async_update_storage_mode(
+                    data.get("bat_soc"), now
+                )
             
             # Get battery details only at the slower battery interval.
-            now = datetime.now()
             if self._last_battery_update is None or (now - self._last_battery_update) >= self._battery_update_interval:
                 try:
                     self.battery_data = await self.client.get_battery_status()
@@ -480,6 +706,16 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         actual_mode = self.mode_data.get("mode")
         if actual_mode is None:
             return
+
+        now = datetime.now()
+        if (
+            self._last_mode_enforcement_check is not None
+            and (now - self._last_mode_enforcement_check)
+            < self._mode_enforcement_interval
+        ):
+            return
+        self._last_mode_enforcement_check = now
+
         expected_mode = (
             MODE_PASSIVE
             if self.desired_operating_mode in (MODE_STANDBY, MODE_MANUAL)
@@ -505,7 +741,6 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             self.desired_operating_mode != MODE_STANDBY
             or self._standby_zero_samples >= 3
         )
-        now = datetime.now()
         if mode_confirmed and standby_confirmed:
             self._mode_enforcement_failures = 0
             self._mode_enforcement_error = False
@@ -620,13 +855,18 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self._storage_phase = None
         await self._storage.async_save({"enabled": True})
         soc = self.data.get("bat_soc") if self.data else None
-        await self._async_update_storage_mode(soc)
+        await self._async_update_storage_mode(
+            soc, datetime.now()
+        )
         self.async_update_listeners()
 
     async def async_disable_storage_mode(self) -> None:
         """Disable storage/winter mode."""
         self.storage_mode_enabled = False
         self._storage_phase = None
+        self._solar_check_started = None
+        self._solar_check_cooldown_until = None
+        self._storage_command_due = None
         await self._storage.async_save({"enabled": False})
 
     async def async_start_automatic_storage_controller(self) -> None:
@@ -638,7 +878,11 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         soc = self.data.get("bat_soc") if self.data else None
         await self._async_update_automatic_storage(soc)
         if self.storage_mode_enabled:
-            await self._async_update_storage_mode(soc)
+            await self._async_update_storage_mode(
+                soc, datetime.now()
+            )
+        else:
+            await self.set_mode(MODE_AUTO)
         self.async_update_listeners()
 
     async def async_set_automatic_storage(
@@ -651,6 +895,9 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self._full_soc_days = 0
         self.storage_mode_enabled = False
         self._storage_phase = None
+        self._solar_check_started = None
+        self._solar_check_cooldown_until = None
+        self._storage_command_due = None
         self._reset_day_tracking(dt_util.now() if enabled else None)
         await self._storage.async_save({"enabled": False})
         await self._automatic_storage.async_save(self._automatic_storage_data())
@@ -678,13 +925,23 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self._tracking_last_seen = now
         if self._tracking_max_soc is None or soc_value > self._tracking_max_soc:
             self._tracking_max_soc = soc_value
+        if self._tracking_min_soc is None or soc_value < self._tracking_min_soc:
+            self._tracking_min_soc = soc_value
 
-        # The second consecutive full-charge day is complete as soon as the
-        # threshold is reached; there is no reason to wait until midnight.
+        # Count only a genuinely new solar-assisted full charge. A battery that
+        # simply remains at 99% overnight must not count as another day.
+        if (
+            self._automatic_controller_state == "storage"
+            and self._tracking_had_solar_charge
+            and self._tracking_min_soc is not None
+            and self._tracking_min_soc <= 95
+            and soc_value >= 99
+        ):
+            self._tracking_full_charge_event = True
         if (
             self._automatic_controller_state == "storage"
             and self._full_soc_days >= 1
-            and self._tracking_max_soc >= 99
+            and self._tracking_full_charge_event
         ):
             await self._async_exit_automatic_storage()
             return
@@ -697,6 +954,10 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self._storage_phase = None
         self._low_soc_days = 0
         self._full_soc_days = 0
+        self._solar_check_started = None
+        self._solar_check_cooldown_until = None
+        self._storage_command_due = None
+        self._reset_day_tracking(dt_util.now())
         await self._storage.async_save({"enabled": False})
         await self.set_mode(MODE_AUTO)
         await self._automatic_storage.async_save(self._automatic_storage_data())
@@ -731,7 +992,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 self._full_soc_days = 0
                 await self._storage.async_save({"enabled": True})
         else:
-            if self._tracking_max_soc >= 99:
+            if self._tracking_full_charge_event:
                 self._full_soc_days += 1
             else:
                 self._full_soc_days = 0
@@ -740,8 +1001,55 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
 
         await self._automatic_storage.async_save(self._automatic_storage_data())
 
-    async def _async_update_storage_mode(self, soc: Any) -> None:
-        """Keep the battery near 50 percent using a hysteresis state machine."""
+    async def _async_apply_storage_phase(self, phase: str) -> None:
+        """Apply and confirm the physical mode required by a storage phase."""
+        passive_power = (
+            STORAGE_CHARGE_POWER if phase == "charging" else 0
+        )
+        expected_mode = (
+            MODE_PASSIVE
+            if phase in ("charging", "holding")
+            else MODE_AUTO
+        )
+        if expected_mode == MODE_PASSIVE:
+            result = await self.client.set_passive_mode(
+                power=passive_power, cd_time=300
+            )
+        else:
+            result = await self.client.set_mode(MODE_AUTO)
+        if result.get("set_result") is False:
+            raise ValueError(f"Device rejected storage phase {phase}")
+
+        confirmed: dict[str, Any] = {}
+        for _attempt in range(5):
+            await asyncio.sleep(2)
+            confirmed = await self.client.get_energy_system_mode()
+            if confirmed.get("mode") == expected_mode:
+                break
+        if confirmed.get("mode") != expected_mode:
+            if confirmed:
+                self.mode_data.update(confirmed)
+            raise ValueError(
+                f"Device did not confirm storage phase {phase}; "
+                f"reported {confirmed.get('mode')}"
+            )
+
+        self.mode_data.update(confirmed)
+        self.mode_data["mode"] = expected_mode
+        if self.data is not None:
+            self.data["mode"] = expected_mode
+        self._storage_command_due = (
+            datetime.now() + timedelta(seconds=240)
+            if expected_mode == MODE_PASSIVE
+            else None
+        )
+
+    async def _async_update_storage_mode(
+        self,
+        soc: Any,
+        now: datetime | None = None,
+    ) -> None:
+        """Keep the battery near 50 percent and use verified solar surplus."""
         if soc is None:
             return
 
@@ -751,42 +1059,145 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Storage mode received invalid SOC value: %s", soc)
             return
 
+        now = now or datetime.now()
+        battery_average = self._time_weighted_average(
+            self._battery_power_samples, now, timedelta(minutes=2)
+        )
         next_phase = self._storage_phase
-        if self._storage_phase == "charging":
-            if soc_value >= STORAGE_TARGET_SOC:
-                next_phase = "holding"
-        elif self._storage_phase == "auto":
-            if soc_value <= STORAGE_TARGET_SOC:
-                next_phase = "holding"
-        elif soc_value <= STORAGE_CHARGE_START_SOC:
-            next_phase = "charging"
-        elif soc_value >= STORAGE_AUTO_START_SOC:
-            next_phase = "auto"
-        else:
-            next_phase = "holding"
 
-        if next_phase == self._storage_phase:
+        # Manually selected Storage keeps the original self-contained
+        # 45/50/55 hysteresis. Solar-assisted states belong exclusively to the
+        # automatic winter controller.
+        if not self.automatic_storage_enabled:
+            if self._storage_phase == "charging":
+                if soc_value >= STORAGE_TARGET_SOC:
+                    next_phase = "holding"
+            elif self._storage_phase == "auto":
+                if soc_value <= STORAGE_TARGET_SOC:
+                    next_phase = "holding"
+            elif soc_value <= STORAGE_CHARGE_START_SOC:
+                next_phase = "charging"
+            elif soc_value >= STORAGE_AUTO_START_SOC:
+                next_phase = "auto"
+            else:
+                next_phase = "holding"
+        else:
+            if self._storage_phase == "charging":
+                if soc_value >= STORAGE_TARGET_SOC:
+                    next_phase = "holding"
+            elif self._storage_phase == "solar_check":
+                elapsed = (
+                    now - self._solar_check_started
+                    if self._solar_check_started
+                    else timedelta()
+                )
+                if soc_value < STORAGE_TARGET_SOC:
+                    next_phase = "holding"
+                elif (
+                    elapsed >= timedelta(minutes=2)
+                    and battery_average is not None
+                    and battery_average > BATTERY_POWER_THRESHOLD_W
+                ):
+                    self._tracking_had_solar_charge = True
+                    next_phase = "solar_charging"
+                elif elapsed >= timedelta(seconds=SOLAR_CHECK_MAX_SECONDS):
+                    self._solar_check_cooldown_until = now + timedelta(
+                        seconds=SOLAR_CHECK_COOLDOWN_SECONDS
+                    )
+                    next_phase = (
+                        "auto"
+                        if soc_value > STORAGE_TARGET_SOC
+                        else "holding"
+                    )
+            elif self._storage_phase == "solar_charging":
+                self._tracking_had_solar_charge = True
+                if soc_value <= STORAGE_TARGET_SOC:
+                    next_phase = "holding"
+                elif (
+                    battery_average is not None
+                    and battery_average < -BATTERY_POWER_THRESHOLD_W
+                ):
+                    next_phase = "auto"
+            elif self._storage_phase == "auto":
+                if soc_value <= STORAGE_TARGET_SOC:
+                    next_phase = "holding"
+                elif (
+                    battery_average is not None
+                    and battery_average > BATTERY_POWER_THRESHOLD_W
+                ):
+                    self._tracking_had_solar_charge = True
+                    next_phase = "solar_charging"
+            elif soc_value <= STORAGE_CHARGE_START_SOC:
+                next_phase = "charging"
+            elif (
+                self._storage_phase == "holding"
+                and self.solar_surplus
+                and (
+                    self._solar_check_cooldown_until is None
+                    or now >= self._solar_check_cooldown_until
+                )
+            ):
+                next_phase = "solar_check"
+            else:
+                next_phase = "holding"
+
+        phase_changed = next_phase != self._storage_phase
+        if phase_changed and next_phase == "solar_check":
+            self._solar_check_started = now
+        elif phase_changed and self._storage_phase == "solar_check":
+            self._solar_check_started = None
+
+        expected_mode = (
+            MODE_PASSIVE
+            if next_phase in ("charging", "holding")
+            else MODE_AUTO
+        )
+        mode_mismatch = self.mode_data.get("mode") not in (
+            None,
+            expected_mode,
+        )
+        keepalive_due = (
+            self._storage_command_due is not None
+            and now >= self._storage_command_due
+        )
+        if not phase_changed and not mode_mismatch and not keepalive_due:
             return
 
-        if next_phase == "charging":
-            result = await self.client.set_passive_mode(
-                power=STORAGE_CHARGE_POWER, cd_time=0
+        if self._mode_enforcement_failures >= 5:
+            self._mode_enforcement_error = True
+            return
+        if (
+            self._mode_enforcement_next_attempt is not None
+            and now < self._mode_enforcement_next_attempt
+        ):
+            return
+        try:
+            await self._async_apply_storage_phase(next_phase)
+        except Exception as err:
+            self._mode_enforcement_failures += 1
+            self._mode_enforcement_next_attempt = now + timedelta(seconds=30)
+            if self._mode_enforcement_failures >= 5:
+                self._mode_enforcement_error = True
+            _LOGGER.warning(
+                "Storage phase %s could not be confirmed (%d/5): %s",
+                next_phase,
+                self._mode_enforcement_failures,
+                err,
             )
-        elif next_phase == "auto":
-            result = await self.client.set_mode(MODE_AUTO)
-        else:
-            result = await self.client.set_passive_mode(power=0, cd_time=0)
+            self.async_update_listeners()
+            return
 
-        if result.get("set_result") is False:
-            raise ValueError(f"Device rejected storage phase {next_phase}")
-
-        _LOGGER.info(
-            "Storage mode changed phase from %s to %s at %.1f%% SOC",
-            self._storage_phase,
-            next_phase,
-            soc_value,
-        )
+        if phase_changed:
+            _LOGGER.info(
+                "Storage mode changed phase from %s to %s at %.1f%% SOC",
+                self._storage_phase,
+                next_phase,
+                soc_value,
+            )
         self._storage_phase = next_phase
+        self._mode_enforcement_failures = 0
+        self._mode_enforcement_error = False
+        self._mode_enforcement_next_attempt = None
         self.async_update_listeners()
 
     async def set_manual_schedule(

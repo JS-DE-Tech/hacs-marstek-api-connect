@@ -96,6 +96,9 @@ class MarstekBinarySensor(CoordinatorEntity, BinarySensorEntity):
         """
         attr_path = self.sensor_config.get("attr")
         source = self.sensor_config.get("source", "auto")
+
+        if source == "derived" and self.sensor_id == "solar_surplus":
+            return self.coordinator.solar_surplus
         
         # Check appropriate data source based on sensor configuration
         if source == "battery" and self.coordinator.battery_data:
@@ -126,7 +129,25 @@ class MarstekBinarySensor(CoordinatorEntity, BinarySensorEntity):
         Returns:
             True if data is available
         """
+        if self.sensor_id == "solar_surplus":
+            return (
+                self.coordinator.last_update_success
+                and self.coordinator.solar_power is not None
+            )
         return self.coordinator.last_update_success
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return the configured solar-surplus thresholds."""
+        if self.sensor_id != "solar_surplus":
+            return None
+        return {
+            "source_entity": self.coordinator.solar_power_entity,
+            "turn_on_above_w": self.coordinator.solar_surplus_on_w,
+            "turn_off_below_w": self.coordinator.solar_surplus_off_w,
+            "turn_on_minutes": self.coordinator.solar_surplus_on_minutes,
+            "turn_off_minutes": self.coordinator.solar_surplus_off_minutes,
+        }
 
     @callback
     def _handle_coordinator_update(self) -> None:

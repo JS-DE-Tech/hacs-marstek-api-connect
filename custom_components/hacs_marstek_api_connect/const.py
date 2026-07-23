@@ -26,6 +26,15 @@ STORAGE_TARGET_SOC: Final = 50
 STORAGE_AUTO_START_SOC: Final = 55
 STORAGE_CHARGE_POWER: Final = -500  # Negative values charge the battery
 
+# Automatic storage solar control defaults
+DEFAULT_SOLAR_SURPLUS_ON_W: Final = 1400
+DEFAULT_SOLAR_SURPLUS_OFF_W: Final = 1000
+DEFAULT_SOLAR_SURPLUS_ON_MINUTES: Final = 2
+DEFAULT_SOLAR_SURPLUS_OFF_MINUTES: Final = 5
+SOLAR_CHECK_MAX_SECONDS: Final = 300
+SOLAR_CHECK_COOLDOWN_SECONDS: Final = 600
+BATTERY_POWER_THRESHOLD_W: Final = 100
+
 # API Methods
 API_GET_REALTIME_DATA: Final = "get_realtime_data"
 API_GET_BATTERY_INFO: Final = "get_battery_info"
@@ -144,6 +153,15 @@ SENSORS_BATTERY_MANUAL: Final = {
 }
 
 SENSORS_BATTERY_DERIVED: Final = {
+    "solar_power": {
+        "name": "Solar Power",
+        "unit": "W",
+        "icon": "mdi:solar-power",
+        "device_class": "power",
+        "state_class": "measurement",
+        "attr": None,
+        "source": "derived",
+    },
     "battery_power": {
         "name": "Battery Power",
         "unit": "W",
@@ -471,6 +489,13 @@ BINARY_SENSORS: Final = {
         "attr": "state",
         "source": "ble",
     },
+    "solar_surplus": {
+        "name": "Solar Surplus",
+        "icon": "mdi:solar-power-variant",
+        "device_class": None,
+        "attr": None,
+        "source": "derived",
+    },
 }
 
 # Week Set Bitmask
@@ -493,3 +518,8 @@ CONF_TIMEOUT: Final = "timeout"
 CONF_FAST_SCAN_INTERVAL: Final = "fast_scan_interval"
 CONF_MODE_SCAN_INTERVAL: Final = "mode_scan_interval"
 CONF_ENABLED_MODES: Final = "enabled_modes"
+CONF_SOLAR_POWER_ENTITY: Final = "solar_power_entity"
+CONF_SOLAR_SURPLUS_ON_W: Final = "solar_surplus_on_w"
+CONF_SOLAR_SURPLUS_OFF_W: Final = "solar_surplus_off_w"
+CONF_SOLAR_SURPLUS_ON_MINUTES: Final = "solar_surplus_on_minutes"
+CONF_SOLAR_SURPLUS_OFF_MINUTES: Final = "solar_surplus_off_minutes"

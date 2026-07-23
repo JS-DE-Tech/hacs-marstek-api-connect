@@ -70,8 +70,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_load_storage_mode()
     await coordinator.async_load_automatic_storage()
     await coordinator.async_load_desired_operating_mode()
-    coordinator.storage_mode_enabled = False
-    coordinator._storage_phase = None
     
     try:
         await coordinator.async_config_entry_first_refresh()
@@ -80,7 +78,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     try:
         if coordinator.automatic_storage_enabled:
-            await coordinator.set_mode(MODE_AUTO)
+            # The restored winter controller applies its persisted phase below.
+            pass
         elif coordinator.desired_operating_mode == MODE_STORAGE:
             await coordinator.async_enable_storage_mode()
         else:
