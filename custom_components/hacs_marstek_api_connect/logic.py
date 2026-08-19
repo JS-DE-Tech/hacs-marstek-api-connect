@@ -19,6 +19,30 @@ def normalize_ipv4(value: Any) -> Any:
     return ".".join(str(number) for number in numbers)
 
 
+def device_selection_options(
+    discovered_devices: list[tuple[str, int, dict[str, Any]]],
+    actions: list[tuple[str, str]],
+) -> list[dict[str, str]]:
+    """Build a homogeneous Home Assistant select-option list."""
+    options: list[dict[str, str]] = []
+    for fallback_ip, _port, payload in discovered_devices:
+        device_info = payload.get("result", {})
+        device_name = device_info.get("device") or "Marstek Venus E"
+        device_ip = str(
+            normalize_ipv4(device_info.get("ip") or fallback_ip)
+        )
+        source = payload.get("src")
+        label = f"{device_ip} - {device_name}"
+        if source:
+            label += f" [{source}]"
+        options.append({"value": device_ip, "label": label})
+
+    options.extend(
+        {"value": value, "label": label} for value, label in actions
+    )
+    return options
+
+
 def time_weighted_average(
     samples: deque[tuple[datetime, float]],
     now: datetime,

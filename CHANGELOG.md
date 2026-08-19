@@ -1,6 +1,6 @@
 # Changelog
 
-## [2.8.0-beta.1] - 2026-08-19
+## [2.8.0] - 2026-08-19
 
 ### Breaking
 - `Status` and `Storage status` are now enum sensors with translated states.
@@ -12,11 +12,18 @@
 - The day counters that used to be part of the `Storage status` text are now
   attributes: `low_soc_days`, `low_soc_days_required`, `full_soc_days` and
   `full_soc_days_required`.
+- The `Operating mode` select now exposes lowercase option keys (`auto`, `ai`,
+  `standby`, `manual`, `schedule`, `storage`) so Home Assistant can translate
+  their visible labels. Automations using `select.select_option` must use the
+  lowercase option key. The `set_mode` service and device protocol values are
+  unchanged.
 - Remove the redundant `set_passive_mode` and `change_operating_mode` services.
   Use the persistent `set_mode` service, Manual power slider and
   `set_manual_schedule` service instead.
 
 ### Added
+- Separate `Observation progress` sensor showing the current automatic-storage
+  observation counter as `0/5` through `5/5`.
 - GitHub Actions validation for the regression suite, Python compilation, HACS
   repository rules and Home Assistant hassfest, plus weekly Dependabot updates
   for versioned workflow actions.
@@ -38,6 +45,17 @@
   duplicate packets, metadata and complete translation placeholders.
 
 ### Fixed
+- Distinguish the persistent `Target operating mode` select from the physical
+  `Operating mode` feedback sensor.
+- Show the same translated operating-mode labels in the select entity and the
+  available-modes configuration form.
+- Set dynamic translation keys before entity initialization and stop overriding
+  translated entity names with an explicit null name. Sensors, binary sensors,
+  Operating Mode and Clear Schedules now show their individual translated names
+  instead of only the device name.
+- Start discovery immediately instead of showing a non-functional Continue
+  checkbox, and build the device selector from one consistent option format so
+  Home Assistant no longer returns an unknown setup error after discovery.
 - Pass current HACS and Home Assistant hassfest metadata and translation
   validation. Schedule-direction selectors now use lowercase IDs while the
   service schema keeps accepting the former title-case values for compatibility.

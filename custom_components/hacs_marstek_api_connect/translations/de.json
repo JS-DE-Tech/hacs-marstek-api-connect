@@ -3,10 +3,7 @@
     "step": {
       "user": {
         "title": "Marstek Venus E einrichten",
-        "description": "Starte die Suche nach deinem Marstek Venus E und verbinde ihn mit Home Assistant.",
-        "data": {
-          "confirm": "Weiter"
-        }
+        "description": "Starte die Suche nach deinem Marstek Venus E und verbinde ihn mit Home Assistant."
       },
       "discovery": {
         "title": "Geräte werden gesucht",
@@ -302,6 +299,9 @@
           "storage_discharging": "Lagerung – Entladen"
         }
       },
+      "storage_observation_progress": {
+        "name": "Beobachtungsfortschritt"
+      },
       "self_test": {
         "name": "Selbsttest",
         "state": {
@@ -333,7 +333,15 @@
     },
     "select": {
       "operating_mode": {
-        "name": "Betriebsmodus"
+        "name": "Soll-Betriebsmodus",
+        "state": {
+          "auto": "Automatisch (Eigenverbrauch)",
+          "ai": "KI-Modus",
+          "standby": "Standby (0 W)",
+          "manual": "Manuelle Leistung",
+          "schedule": "Zeitplan",
+          "storage": "Lagerung / Winter"
+        }
       }
     },
     "switch": {

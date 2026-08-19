@@ -50,6 +50,8 @@ async def async_setup_entry(
 class MarstekBinarySensor(CoordinatorEntity, BinarySensorEntity):
     """Marstek Venus E binary sensor entity."""
 
+    _attr_has_entity_name = True
+
     def __init__(
         self,
         coordinator: DataUpdateCoordinator,
@@ -65,6 +67,11 @@ class MarstekBinarySensor(CoordinatorEntity, BinarySensorEntity):
             sensor_id: Sensor identifier
             sensor_config: Sensor configuration dictionary
         """
+        # Entity caches translated names during initialization. Set the dynamic
+        # translation key first so every sensor gets its own translated name.
+        self._attr_translation_key = sensor_config.get(
+            "translation_key", sensor_id
+        )
         super().__init__(coordinator)
         
         self.coordinator = coordinator
@@ -72,11 +79,6 @@ class MarstekBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self.sensor_id = sensor_id
         self.sensor_config = sensor_config
         
-        self._attr_translation_key = sensor_config.get(
-            "translation_key", sensor_id
-        )
-        self._attr_has_entity_name = True
-        self._attr_name = None
         self._attr_icon = sensor_config.get("icon")
         self._attr_device_class = sensor_config.get("device_class")
         

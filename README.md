@@ -139,9 +139,11 @@ shows in the user's language:
 - `storage_discharging`
 - `full_charge_detected`
 
-Its day counters are attributes rather than part of the state:
-`low_soc_days`, `low_soc_days_required`, `full_soc_days`,
-`full_soc_days_required` and the internal `storage_phase`.
+The separate **Observation progress** sensor shows the current five-day
+observation counter as `0/5` through `5/5`. The detailed counters also remain
+available as attributes of **Storage status**: `low_soc_days`,
+`low_soc_days_required`, `full_soc_days`, `full_soc_days_required` and the
+internal `storage_phase`.
 
 The regular **Status** sensor reports `standby`, `charging`, `discharging`,
 `mode_error`, or the current `storage_*` phase.

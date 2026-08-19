@@ -11,6 +11,7 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_IP_ADDRESS, CONF_PORT
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
+from homeassistant.helpers.translation import async_get_translations
 
 from .const import (
     CONF_BLE_MAC,
@@ -33,7 +34,11 @@ from .const import (
     MODE_STANDBY,
     SELECTABLE_MODES,
 )
-from .logic import week_set_from_days
+from .logic import (
+    device_selection_options,
+    normalize_ipv4,
+    week_set_from_days,
+)
 from .udp_client import MarstekUDPClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -63,31 +68,8 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle a flow initiated by the user.
-        
-        Starts the discovery process.
-        
-        Args:
-            user_input: Input from the user
-            
-        Returns:
-            Config flow result
-        """
-        if user_input is not None:
-            # User clicked continue, move to discovery
-            return await self.async_step_discovery()
-
-        schema = vol.Schema(
-            {
-                vol.Required("confirm", default=True): bool,
-            }
-        )
-
-        return self.async_show_form(
-            step_id="user",
-            data_schema=schema,
-            description_placeholders={},
-        )
+        """Start device discovery immediately when the flow opens."""
+        return await self.async_step_discovery()
 
     async def async_step_discovery(
         self, user_input: dict[str, Any] | None = None
@@ -163,9 +145,12 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # For discovered devices, extract BLE MAC from the discovery response
                 # A discovery response proves reachability even though this
                 # firmware does not answer unicast connection checks.
-                for disc_ip, disc_port, payload in self.discovered_devices:
-                    if disc_ip == ip_address:
-                        device_info = payload.get("result", {})
+                for disc_ip, _disc_port, payload in self.discovered_devices:
+                    device_info = payload.get("result", {})
+                    discovered_ip = normalize_ipv4(
+                        device_info.get("ip") or disc_ip
+                    )
+                    if discovered_ip == ip_address:
                         if not ble_mac:
                             ble_mac = device_info.get("ble_mac", "")
                         break
@@ -182,21 +167,40 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Ask if user wants to clear schedules
                 return await self.async_step_clear_schedules()
         
-        # Build device list for selection
-        device_options: list[str | dict[str, str]] = []
-        if self.discovered_devices:
-            for ip, port, payload in self.discovered_devices:
-                device_info = payload.get("result", {})
-                device_name = device_info.get("device") or "Marstek Venus E"
-                device_ip = device_info.get("ip", ip)
-                src = payload.get("src")
-                label = f"{device_ip} - {device_name}"
-                if src:
-                    label += f" [{src}]"
-                device_options.append({"value": device_ip, "label": label})
-        
-        # Add setup actions.
-        device_options.extend([ACTION_RETRY_DISCOVERY, ACTION_MANUAL])
+        try:
+            translations = await async_get_translations(
+                self.hass,
+                self.hass.config.language,
+                "selector",
+                {DOMAIN},
+            )
+        except Exception as err:
+            _LOGGER.debug(
+                "Could not load setup action translations: %s", err
+            )
+            translations = {}
+        translation_prefix = (
+            f"component.{DOMAIN}.selector.device_selection.options"
+        )
+        device_options = device_selection_options(
+            self.discovered_devices,
+            [
+                (
+                    ACTION_RETRY_DISCOVERY,
+                    translations.get(
+                        f"{translation_prefix}.{ACTION_RETRY_DISCOVERY}",
+                        "Search again",
+                    ),
+                ),
+                (
+                    ACTION_MANUAL,
+                    translations.get(
+                        f"{translation_prefix}.{ACTION_MANUAL}",
+                        "Enter IP address manually",
+                    ),
+                ),
+            ],
+        )
         
         # Build schema
         schema = {}
@@ -205,7 +209,6 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             schema[vol.Required(CONF_IP_ADDRESS)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=device_options,
-                    translation_key="device_selection",
                 )
             )
         else:

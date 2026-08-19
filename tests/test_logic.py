@@ -39,6 +39,41 @@ class DataNormalizationTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertEqual(value, LOGIC.normalize_ipv4(value))
 
+    def test_device_selection_options_are_homogeneous(self) -> None:
+        devices = [
+            (
+                "10.100.1.227",
+                30000,
+                {
+                    "src": "VenusE-1234",
+                    "result": {
+                        "device": "VenusE 3.0",
+                        "ip": "10.100.01.227",
+                    },
+                },
+            )
+        ]
+        options = LOGIC.device_selection_options(
+            devices,
+            [
+                ("retry_discovery", "Erneut suchen"),
+                ("manual", "IP-Adresse manuell eingeben"),
+            ],
+        )
+
+        self.assertEqual(
+            {
+                "value": "10.100.1.227",
+                "label": "10.100.1.227 - VenusE 3.0 [VenusE-1234]",
+            },
+            options[0],
+        )
+        self.assertEqual(
+            ["10.100.1.227", "retry_discovery", "manual"],
+            [option["value"] for option in options],
+        )
+        self.assertTrue(all(set(option) == {"value", "label"} for option in options))
+
     def test_time_weighted_average_requires_a_complete_window(self) -> None:
         now = datetime(2026, 1, 1, 12, 5)
         samples = deque([(now - timedelta(minutes=4), 1000.0)])

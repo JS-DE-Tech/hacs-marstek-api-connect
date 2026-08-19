@@ -34,7 +34,7 @@ class MetadataTests(unittest.TestCase):
         manifest = json.loads(
             (INTEGRATION / "manifest.json").read_text(encoding="utf-8")
         )
-        self.assertEqual("2.8.0-beta.1", manifest["version"])
+        self.assertEqual("2.8.0", manifest["version"])
 
     def test_manifest_and_hacs_metadata_agree(self) -> None:
         manifest = json.loads(
@@ -77,6 +77,44 @@ class MetadataTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("package-ecosystem: github-actions", dependabot)
+
+    def test_setup_starts_discovery_without_confirmation_checkbox(self) -> None:
+        config_flow = (INTEGRATION / "config_flow.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn('vol.Required("confirm"', config_flow)
+        self.assertIn(
+            '"""Start device discovery immediately when the flow opens."""',
+            config_flow,
+        )
+
+    def test_dynamic_translation_keys_are_set_before_entity_init(self) -> None:
+        """Prevent Home Assistant from caching an empty entity name."""
+        for filename, class_name in (
+            ("sensor.py", "MarstekSensor"),
+            ("binary_sensor.py", "MarstekBinarySensor"),
+        ):
+            source = (INTEGRATION / filename).read_text(encoding="utf-8")
+            constructor = source.split(f"class {class_name}", 1)[1]
+            with self.subTest(platform=filename):
+                self.assertLess(
+                    constructor.index("self._attr_translation_key"),
+                    constructor.index("super().__init__(coordinator)"),
+                )
+
+    def test_translated_entities_do_not_override_name_with_none(self) -> None:
+        """An explicit null name suppresses translations in current HA."""
+        for filename in (
+            "sensor.py",
+            "binary_sensor.py",
+            "select.py",
+            "button.py",
+            "number.py",
+            "switch.py",
+        ):
+            with self.subTest(platform=filename):
+                source = (INTEGRATION / filename).read_text(encoding="utf-8")
+                self.assertNotIn("_attr_name = None", source)
 
     def test_user_modes_separate_direct_power_and_schedules(self) -> None:
         self.assertIn("Manual", CONST.SELECTABLE_MODES)
@@ -192,6 +230,21 @@ class MetadataTests(unittest.TestCase):
                 with self.subTest(path=path.name, selector=key):
                     self.assertEqual(options, set(selectors[key]["options"]))
 
+    def test_operating_mode_labels_match_configuration(self) -> None:
+        """The select entity and options form must show identical labels."""
+        expected_options = {mode.lower() for mode in CONST.SELECTABLE_MODES}
+        for path in translation_files():
+            with self.subTest(path=path.name):
+                data = json.loads(path.read_text(encoding="utf-8"))
+                configured = data["selector"]["operating_mode_options"][
+                    "options"
+                ]
+                select_states = data["entity"]["select"][
+                    "operating_mode"
+                ]["state"]
+                self.assertEqual(expected_options, set(select_states))
+                self.assertEqual(configured, select_states)
+
     def test_every_entity_has_a_translation(self) -> None:
         """Every entity description key needs a visible localized name."""
         for path in translation_files():
@@ -281,6 +334,13 @@ class MetadataTests(unittest.TestCase):
                 self.assertEqual("enum", config["device_class"])
                 self.assertTrue(config["options"])
                 self.assertEqual(key, config["translation_key"])
+
+    def test_observation_progress_is_a_derived_sensor(self) -> None:
+        """The five-day counter must be exposed as its own plain sensor."""
+        config = CONST.ALL_SENSORS["storage_observation_progress"]
+        self.assertEqual("derived", config["source"])
+        self.assertIsNone(config["device_class"])
+        self.assertIsNone(config["attr"])
 
     def test_error_messages_are_translated(self) -> None:
         """A raised HomeAssistantError must resolve in every language."""

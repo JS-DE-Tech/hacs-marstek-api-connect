@@ -3,10 +3,7 @@
     "step": {
       "user": {
         "title": "Set up Marstek Venus E",
-        "description": "Find your Marstek Venus E and connect it to Home Assistant.",
-        "data": {
-          "confirm": "Continue"
-        }
+        "description": "Find your Marstek Venus E and connect it to Home Assistant."
       },
       "discovery": {
         "title": "Discovering devices",
@@ -302,6 +299,9 @@
           "storage_discharging": "Storage – discharging"
         }
       },
+      "storage_observation_progress": {
+        "name": "Observation progress"
+      },
       "self_test": {
         "name": "Self-test",
         "state": {
@@ -333,7 +333,15 @@
     },
     "select": {
       "operating_mode": {
-        "name": "Operating mode"
+        "name": "Target operating mode",
+        "state": {
+          "auto": "Auto (self-consumption)",
+          "ai": "AI mode",
+          "standby": "Standby (0 W)",
+          "manual": "Manual power",
+          "schedule": "Schedule",
+          "storage": "Storage / winter"
+        }
       }
     },
     "switch": {

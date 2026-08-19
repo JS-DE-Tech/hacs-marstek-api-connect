@@ -23,6 +23,9 @@ from .coordinator import MarstekDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+_MODE_TO_OPTION = {mode: mode.lower() for mode in SELECTABLE_MODES}
+_OPTION_TO_MODE = {option: mode for mode, option in _MODE_TO_OPTION.items()}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -63,7 +66,6 @@ class MarstekOperatingModeSelect(CoordinatorEntity, SelectEntity):
             entry: Configuration entry
         """
         super().__init__(coordinator)
-        self._attr_name = None
         self._attr_unique_id = f"{entry.entry_id}_operating_mode"
         configured_modes = entry.options.get(CONF_ENABLED_MODES, SELECTABLE_MODES)
         if MODE_PASSIVE in configured_modes:
@@ -89,15 +91,19 @@ class MarstekOperatingModeSelect(CoordinatorEntity, SelectEntity):
             self.coordinator.storage_mode_enabled
             and MODE_STORAGE not in self._configured_options
         ):
-            return [*self._configured_options, MODE_STORAGE]
-        return self._configured_options
+            modes = [*self._configured_options, MODE_STORAGE]
+        else:
+            modes = self._configured_options
+        return [_MODE_TO_OPTION[mode] for mode in modes]
 
     @property
     def current_option(self) -> str | None:
         """Return the persistent operating-mode setpoint."""
         if self.coordinator.storage_mode_enabled:
-            return MODE_STORAGE
-        return self.coordinator.desired_operating_mode
+            mode = MODE_STORAGE
+        else:
+            mode = self.coordinator.desired_operating_mode
+        return _MODE_TO_OPTION.get(mode) if mode is not None else None
     
     async def async_select_option(self, option: str) -> None:
         """Change the operating mode.
@@ -105,17 +111,18 @@ class MarstekOperatingModeSelect(CoordinatorEntity, SelectEntity):
         Args:
             option: New operating mode
         """
-        if option not in SELECTABLE_MODES:
+        mode = _OPTION_TO_MODE.get(option)
+        if mode is None:
             _LOGGER.error("Invalid mode: %s", option)
             return
         
         try:
-            await self.coordinator.async_select_operating_mode(option)
-            _LOGGER.info("Changed operating mode to: %s", option)
+            await self.coordinator.async_select_operating_mode(mode)
+            _LOGGER.info("Changed operating mode to: %s", mode)
         except Exception as err:
-            _LOGGER.error("Failed to set mode to %s: %s", option, err)
+            _LOGGER.error("Failed to set mode to %s: %s", mode, err)
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="mode_not_confirmed",
-                translation_placeholders={"mode": option},
+                translation_placeholders={"mode": mode},
             ) from err

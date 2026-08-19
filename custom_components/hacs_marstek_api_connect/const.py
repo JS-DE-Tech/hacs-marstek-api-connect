@@ -427,6 +427,12 @@ SENSORS_SYSTEM: Final = {
         "attr": None,
         "source": "derived",
     },
+    "storage_observation_progress": {
+        "icon": "mdi:calendar-clock",
+        "device_class": None,
+        "attr": None,
+        "source": "derived",
+    },
     "self_test": {
         "icon": "mdi:clipboard-pulse",
         "device_class": "enum",
