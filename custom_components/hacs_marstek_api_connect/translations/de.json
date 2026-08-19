@@ -333,15 +333,7 @@
     },
     "select": {
       "operating_mode": {
-        "name": "Betriebsmodus",
-        "state": {
-          "Auto": "Automatisch (Eigenverbrauch)",
-          "AI": "KI-Modus",
-          "Standby": "Standby (0 W)",
-          "Manual": "Manuelle Leistung",
-          "Schedule": "Zeitplan",
-          "Storage": "Lagerung / Winter"
-        }
+        "name": "Betriebsmodus"
       }
     },
     "switch": {

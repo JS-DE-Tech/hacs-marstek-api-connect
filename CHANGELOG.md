@@ -38,6 +38,7 @@
   duplicate packets, metadata and complete translation placeholders.
 
 ### Fixed
+- Pass current HACS and Home Assistant hassfest metadata validation.
 - Ignore duplicate or late UDP response datagrams after a request has already
   completed, preventing `InvalidStateError` on devices or networks that deliver
   the same packet more than once.

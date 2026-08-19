@@ -41,15 +41,26 @@ class MetadataTests(unittest.TestCase):
             (INTEGRATION / "manifest.json").read_text(encoding="utf-8")
         )
         hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
+        manifest_keys = list(manifest)
+        self.assertEqual(
+            ["domain", "name", *sorted(manifest_keys[2:])],
+            manifest_keys,
+        )
         self.assertEqual(CONST.DOMAIN, manifest["domain"])
         self.assertEqual("local_polling", manifest["iot_class"])
         self.assertEqual(manifest["iot_class"], hacs["iot_class"])
         self.assertEqual([], manifest["requirements"])
         self.assertEqual([], hacs["requirements"])
+        self.assertNotIn("authors", hacs)
         self.assertRegex(
             manifest["version"],
             r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$",
         )
+
+        init_source = (INTEGRATION / "__init__.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("cv.config_entry_only_config_schema(DOMAIN)", init_source)
 
     def test_ci_runs_required_validators(self) -> None:
         """Keep local tests, HACS and hassfest in the validation workflow."""

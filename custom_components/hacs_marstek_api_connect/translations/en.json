@@ -333,15 +333,7 @@
     },
     "select": {
       "operating_mode": {
-        "name": "Operating mode",
-        "state": {
-          "Auto": "Auto (self-consumption)",
-          "AI": "AI mode",
-          "Standby": "Standby (0 W)",
-          "Manual": "Manual power",
-          "Schedule": "Schedule",
-          "Storage": "Storage / winter"
-        }
+        "name": "Operating mode"
       }
     },
     "switch": {
