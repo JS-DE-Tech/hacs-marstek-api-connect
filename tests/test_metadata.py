@@ -48,10 +48,11 @@ class MetadataTests(unittest.TestCase):
         )
         self.assertEqual(CONST.DOMAIN, manifest["domain"])
         self.assertEqual("local_polling", manifest["iot_class"])
-        self.assertEqual(manifest["iot_class"], hacs["iot_class"])
         self.assertEqual([], manifest["requirements"])
-        self.assertEqual([], hacs["requirements"])
-        self.assertNotIn("authors", hacs)
+        self.assertEqual(
+            {"name", "render_readme", "homeassistant", "content_in_root"},
+            set(hacs),
+        )
         self.assertRegex(
             manifest["version"],
             r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$",
@@ -174,12 +175,14 @@ class MetadataTests(unittest.TestCase):
         """Every selector value displayed by a form needs a translation."""
         expected = {
             "device_selection": {"retry_discovery", "manual"},
-            "operating_mode_options": set(CONST.SELECTABLE_MODES),
+            "operating_mode_options": {
+                mode.lower() for mode in CONST.SELECTABLE_MODES
+            },
             "weekdays": {
                 "monday", "tuesday", "wednesday", "thursday", "friday",
                 "saturday", "sunday",
             },
-            "schedule_direction": {"Charging", "Discharging"},
+            "schedule_direction": {"charging", "discharging"},
         }
         for path in translation_files():
             selectors = json.loads(path.read_text(encoding="utf-8"))["selector"]

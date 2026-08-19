@@ -40,6 +40,7 @@ _LOGGER = logging.getLogger(__name__)
 
 ACTION_MANUAL = "manual"
 ACTION_RETRY_DISCOVERY = "retry_discovery"
+MODE_OPTION_TO_MODE = {mode.lower(): mode for mode in SELECTABLE_MODES}
 
 
 class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -471,10 +472,14 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
         """Select which operating modes are offered by the entity."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            enabled_modes = user_input.get(CONF_ENABLED_MODES, [])
-            if not enabled_modes:
+            selected_options = user_input.get(CONF_ENABLED_MODES, [])
+            if not selected_options:
                 errors["base"] = "select_at_least_one_mode"
             else:
+                enabled_modes = [
+                    MODE_OPTION_TO_MODE[option]
+                    for option in selected_options
+                ]
                 new_options = {**self._config_entry.options}
                 new_options[CONF_ENABLED_MODES] = enabled_modes
                 return self.async_create_entry(title="", data=new_options)
@@ -486,13 +491,16 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
             current_modes = [
                 mode for mode in current_modes if mode != "Passive"
             ] + [MODE_STANDBY, MODE_MANUAL]
+        current_mode_options = [
+            mode.lower() for mode in current_modes if mode in SELECTABLE_MODES
+        ]
         schema = vol.Schema(
             {
                 vol.Required(
-                    CONF_ENABLED_MODES, default=current_modes
+                    CONF_ENABLED_MODES, default=current_mode_options
                 ): selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        options=SELECTABLE_MODES,
+                        options=list(MODE_OPTION_TO_MODE),
                         translation_key="operating_mode_options",
                         multiple=True,
                         mode=selector.SelectSelectorMode.LIST,

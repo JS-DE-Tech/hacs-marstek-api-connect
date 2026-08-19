@@ -63,13 +63,13 @@ set_manual_schedule:
     mode:
       name: Direction
       required: true
-      default: Discharging
+      default: discharging
       selector:
         select:
           translation_key: schedule_direction
           options:
-            - Charging
-            - Discharging
+            - charging
+            - discharging
     power:
       name: Power
       description: Positive power magnitude from 100 to 2500 W.

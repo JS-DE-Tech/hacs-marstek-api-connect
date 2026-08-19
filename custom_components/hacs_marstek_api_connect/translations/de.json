@@ -133,12 +133,12 @@
     },
     "operating_mode_options": {
       "options": {
-        "Auto": "Automatisch (Eigenverbrauch)",
-        "AI": "KI-Modus",
-        "Standby": "Standby (0 W)",
-        "Manual": "Manuelle Leistung",
-        "Schedule": "Zeitplan",
-        "Storage": "Lagerung / Winter"
+        "auto": "Automatisch (Eigenverbrauch)",
+        "ai": "KI-Modus",
+        "standby": "Standby (0 W)",
+        "manual": "Manuelle Leistung",
+        "schedule": "Zeitplan",
+        "storage": "Lagerung / Winter"
       }
     },
     "weekdays": {
@@ -154,8 +154,8 @@
     },
     "schedule_direction": {
       "options": {
-        "Charging": "Laden",
-        "Discharging": "Entladen"
+        "charging": "Laden",
+        "discharging": "Entladen"
       }
     }
   },

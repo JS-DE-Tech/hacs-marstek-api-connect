@@ -38,7 +38,9 @@
   duplicate packets, metadata and complete translation placeholders.
 
 ### Fixed
-- Pass current HACS and Home Assistant hassfest metadata validation.
+- Pass current HACS and Home Assistant hassfest metadata and translation
+  validation. Schedule-direction selectors now use lowercase IDs while the
+  service schema keeps accepting the former title-case values for compatibility.
 - Ignore duplicate or late UDP response datagrams after a request has already
   completed, preventing `InvalidStateError` on devices or networks that deliver
   the same packet more than once.

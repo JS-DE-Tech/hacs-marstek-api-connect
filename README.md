@@ -282,7 +282,7 @@ data:
   start_time: "01:00"
   end_time: "06:00"
   week_set: 127
-  mode: Charging
+  mode: charging
   power: 500
   enable: true
 ```
@@ -291,7 +291,8 @@ Constraints:
 
 - `time_num`: slot 0–9
 - `end_time`: must be later than `start_time`
-- `mode`: `Charging` or `Discharging`
+- `mode`: `charging` or `discharging` (the former title-case values remain
+  accepted for compatibility)
 - `power`: magnitude from 100 to 2500 W
 - `week_set`: day bitmask from 1 to 127
 

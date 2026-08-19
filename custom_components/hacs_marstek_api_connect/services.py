@@ -52,7 +52,9 @@ SERVICE_SET_MANUAL_SCHEDULE_SCHEMA = _service_schema(
         vol.Required("week_set"): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=127)
         ),
-        vol.Required("mode"): vol.In(["Charging", "Discharging"]),
+        vol.Required("mode"): vol.In(
+            ["charging", "discharging", "Charging", "Discharging"]
+        ),
         vol.Required("power"): vol.All(
             vol.Coerce(int), vol.Range(min=100, max=2500)
         ),
@@ -113,7 +115,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         power_magnitude = call.data["power"]
         power = (
             -power_magnitude
-            if call.data["mode"] == "Charging"
+            if call.data["mode"].lower() == "charging"
             else power_magnitude
         )
         for coordinator in _coordinators_for_call(hass, call):
