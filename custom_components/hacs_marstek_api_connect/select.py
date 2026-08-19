@@ -11,15 +11,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    CONF_ENABLED_MODES,
     DOMAIN,
-    MODE_AUTO,
-    MODE_AI,
     MODE_MANUAL,
     MODE_PASSIVE,
     MODE_STANDBY,
     MODE_STORAGE,
     SELECTABLE_MODES,
-    CONF_ENABLED_MODES,
 )
 from .coordinator import MarstekDataUpdateCoordinator
 
@@ -49,6 +47,9 @@ async def async_setup_entry(
 
 class MarstekOperatingModeSelect(CoordinatorEntity, SelectEntity):
     """Select entity for Marstek Venus E operating mode."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "operating_mode"
     
     def __init__(
         self,
@@ -62,14 +63,16 @@ class MarstekOperatingModeSelect(CoordinatorEntity, SelectEntity):
             entry: Configuration entry
         """
         super().__init__(coordinator)
-        self._attr_name = "Operating Mode"
+        self._attr_name = None
         self._attr_unique_id = f"{entry.entry_id}_operating_mode"
         configured_modes = entry.options.get(CONF_ENABLED_MODES, SELECTABLE_MODES)
         if MODE_PASSIVE in configured_modes:
             configured_modes = [
                 mode for mode in configured_modes if mode != MODE_PASSIVE
             ] + [MODE_STANDBY, MODE_MANUAL]
-        self._attr_options = [mode for mode in SELECTABLE_MODES if mode in configured_modes]
+        self._configured_options = [
+            mode for mode in SELECTABLE_MODES if mode in configured_modes
+        ]
         self._attr_icon = "mdi:cog"
         
         self._attr_device_info = {
@@ -79,6 +82,16 @@ class MarstekOperatingModeSelect(CoordinatorEntity, SelectEntity):
             "model": "Venus E",
         }
     
+    @property
+    def options(self) -> list[str]:
+        """Return the configured modes plus Storage while it is active."""
+        if (
+            self.coordinator.storage_mode_enabled
+            and MODE_STORAGE not in self._configured_options
+        ):
+            return [*self._configured_options, MODE_STORAGE]
+        return self._configured_options
+
     @property
     def current_option(self) -> str | None:
         """Return the persistent operating-mode setpoint."""
@@ -97,19 +110,12 @@ class MarstekOperatingModeSelect(CoordinatorEntity, SelectEntity):
             return
         
         try:
-            await self.coordinator.async_set_desired_operating_mode(option)
-            if self.coordinator.automatic_storage_enabled:
-                await self.coordinator.async_set_automatic_storage(
-                    False, set_auto=False
-                )
-            if option == MODE_STORAGE:
-                await self.coordinator.async_enable_storage_mode()
-            else:
-                await self.coordinator.async_disable_storage_mode()
-                await self.coordinator.async_apply_desired_operating_mode()
+            await self.coordinator.async_select_operating_mode(option)
             _LOGGER.info("Changed operating mode to: %s", option)
         except Exception as err:
             _LOGGER.error("Failed to set mode to %s: %s", option, err)
             raise HomeAssistantError(
-                f"Der Venus E hat den Betriebsmodus {option} nicht bestätigt"
+                translation_domain=DOMAIN,
+                translation_key="mode_not_confirmed",
+                translation_placeholders={"mode": option},
             ) from err

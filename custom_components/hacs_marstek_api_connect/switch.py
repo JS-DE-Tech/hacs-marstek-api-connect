@@ -8,6 +8,7 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -91,30 +92,40 @@ class MarstekLedSwitch(CoordinatorEntity, SwitchEntity, RestoreEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the LED on."""
         try:
-            result = await self.coordinator.client.set_led_ctrl(True)
-            if result.get("set_result") is False:
-                raise ValueError("Device rejected LED on command")
+            await self.coordinator.async_set_led_state(True)
             self._is_on = True
-            self.coordinator.led_state = True
-            _LOGGER.info("LED control: Command ON sent to Marstek device at %s", self.coordinator.client.ip_address)
+            _LOGGER.info(
+                "LED control: Command ON sent to Marstek device at %s",
+                self.coordinator.client.ip_address,
+            )
             self.async_write_ha_state()
         except Exception as err:
             _LOGGER.error("Failed to turn on LED: %s", err)
-            raise
+            if isinstance(err, HomeAssistantError):
+                raise
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="led_set_failed",
+            ) from err
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the LED off."""
         try:
-            result = await self.coordinator.client.set_led_ctrl(False)
-            if result.get("set_result") is False:
-                raise ValueError("Device rejected LED off command")
+            await self.coordinator.async_set_led_state(False)
             self._is_on = False
-            self.coordinator.led_state = False
-            _LOGGER.info("LED control: Command OFF sent to Marstek device at %s", self.coordinator.client.ip_address)
+            _LOGGER.info(
+                "LED control: Command OFF sent to Marstek device at %s",
+                self.coordinator.client.ip_address,
+            )
             self.async_write_ha_state()
         except Exception as err:
             _LOGGER.error("Failed to turn off LED: %s", err)
-            raise
+            if isinstance(err, HomeAssistantError):
+                raise
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="led_set_failed",
+            ) from err
 
 
 class MarstekAutomaticStorageSwitch(CoordinatorEntity, SwitchEntity):
@@ -145,8 +156,24 @@ class MarstekAutomaticStorageSwitch(CoordinatorEntity, SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable automatic winter operation and begin observation."""
-        await self.coordinator.async_set_automatic_storage(True)
+        try:
+            await self.coordinator.async_set_automatic_storage(True)
+        except Exception as err:
+            if isinstance(err, HomeAssistantError):
+                raise
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="automatic_storage_failed",
+            ) from err
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable automatic winter operation and return to Auto."""
-        await self.coordinator.async_set_automatic_storage(False)
+        try:
+            await self.coordinator.async_set_automatic_storage(False)
+        except Exception as err:
+            if isinstance(err, HomeAssistantError):
+                raise
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="automatic_storage_failed",
+            ) from err

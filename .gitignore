@@ -50,4 +50,4 @@ htmlcov/
 .storage/
 secrets.yaml
 
-ha_config
+ha_config/

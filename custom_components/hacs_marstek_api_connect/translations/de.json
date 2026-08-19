@@ -32,12 +32,12 @@
       },
       "clear_schedules": {
         "title": "Zeitplanverwaltung übernehmen",
-        "description": "Optional kann Home Assistant die Verwaltung der manuellen Lade- und Entladezeiten übernehmen. Aktiviere diese Option nur, wenn alle zehn derzeit im Speicher hinterlegten Zeitfenster (0–9) deaktiviert werden sollen.",
+        "description": "Optional kann Home Assistant die manuellen Lade- und Entladezeiten verwalten. Aktiviere diese Option nur, wenn alle zehn im Gerät gespeicherten Zeitfenster (0–9) deaktiviert werden sollen.",
         "data": {
-          "clear_schedules": "Zeitverwaltung durch Home Assistant übernehmen – alle im Speicher hinterlegten Zeiten löschen"
+          "clear_schedules": "Zeitverwaltung durch Home Assistant übernehmen – alle gespeicherten Zeiten löschen"
         },
         "data_description": {
-          "clear_schedules": "Löscht beziehungsweise deaktiviert alle zehn vorhandenen manuellen Zeitfenster. Ohne Haken bleiben die gespeicherten Zeiten unverändert."
+          "clear_schedules": "Deaktiviert alle zehn vorhandenen manuellen Zeitfenster. Ohne Haken bleiben die gespeicherten Zeiten unverändert."
         }
       }
     },
@@ -60,14 +60,14 @@
         "description": "Konfiguriere deinen Marstek Venus E.",
         "menu_options": {
           "configure_manual_mode": "Manuellen Zeitplan konfigurieren",
-          "configure_update_interval": "Aktualisierungsintervall einstellen",
+          "configure_update_interval": "Aktualisierungsintervalle einstellen",
           "configure_operating_modes": "Verfügbare Betriebsmodi auswählen",
-          "configure_solar_surplus": "Solarüberschuss konfigurieren"
+          "configure_solar_surplus": "Solarausgabe konfigurieren"
         }
       },
       "configure_manual_mode": {
         "title": "Manuellen Zeitplan konfigurieren",
-        "description": "Lege einen Lade- oder Entladezeitraum für den manuellen Modus fest. {power_info}",
+        "description": "Lege einen Lade- oder Entladezeitraum fest. Zeitpläne können von der Geräte-API nicht zurückgelesen werden.",
         "data": {
           "time_slot": "Zeitfenster (0–9)",
           "start_time": "Startzeit",
@@ -86,8 +86,8 @@
         }
       },
       "configure_update_interval": {
-        "title": "Aktualisierungsintervall einstellen",
-        "description": "Lege die getrennten Abrufintervalle für schnelle Leistungswerte sowie Betriebsmodus und CT-Daten fest.",
+        "title": "Aktualisierungsintervalle einstellen",
+        "description": "Lege getrennte Abrufintervalle für Leistungswerte sowie Betriebsmodus und CT-Daten fest.",
         "data": {
           "fast_scan_interval": "Energiedaten und Leistung",
           "mode_scan_interval": "Betriebsmodus und CT-Daten"
@@ -99,7 +99,7 @@
       },
       "configure_operating_modes": {
         "title": "Verfügbare Betriebsmodi auswählen",
-        "description": "Lege fest, welche Modi in der Betriebsmodus-Auswahl angezeigt werden. Der Lagermodus hält den Akku mit einer Hysterese um 50 %: Laden mit 500 W ab 45 %, halten bei 50 % und Auto-Abbau ab 55 % bis zurück auf 50 %.",
+        "description": "Lege fest, welche Modi in der Betriebsmodus-Auswahl angezeigt werden. Der Lagermodus hält den Akku mit einer Hysterese um 50 %.",
         "data": {
           "enabled_modes": "Angezeigte Betriebsmodi"
         },
@@ -108,14 +108,14 @@
         }
       },
       "configure_solar_surplus": {
-        "title": "Solarüberschuss konfigurieren",
+        "title": "Solarausgabe konfigurieren",
         "description": "Wähle den Home-Assistant-Leistungssensor für den automatischen Winterbetrieb und konfiguriere die zeitgewichteten Grenzwerte.",
         "data": {
           "solar_power_entity": "Solarleistungs-Entität",
-          "solar_surplus_on_w": "Solarüberschuss ab",
-          "solar_surplus_off_w": "Solarüberschuss endet unter",
-          "solar_surplus_on_minutes": "Einschaltzeitraum",
-          "solar_surplus_off_minutes": "Ausschaltzeitraum"
+          "solar_surplus_on_w": "Solarausgabe aktiv ab",
+          "solar_surplus_off_w": "Solarausgabe endet unter",
+          "solar_surplus_on_minutes": "Einschaltdauer",
+          "solar_surplus_off_minutes": "Ausschaltdauer"
         }
       }
     },
@@ -124,18 +124,211 @@
       "solar_on_must_exceed_off": "Die Einschaltgrenze muss über der Ausschaltgrenze liegen."
     }
   },
+  "selector": {
+    "device_selection": {
+      "options": {
+        "retry_discovery": "Gerätesuche wiederholen",
+        "manual": "IP-Adresse manuell eingeben"
+      }
+    },
+    "operating_mode_options": {
+      "options": {
+        "Auto": "Automatisch (Eigenverbrauch)",
+        "AI": "KI-Modus",
+        "Standby": "Standby (0 W)",
+        "Manual": "Manuelle Leistung",
+        "Schedule": "Zeitplan",
+        "Storage": "Lagerung / Winter"
+      }
+    },
+    "weekdays": {
+      "options": {
+        "monday": "Montag",
+        "tuesday": "Dienstag",
+        "wednesday": "Mittwoch",
+        "thursday": "Donnerstag",
+        "friday": "Freitag",
+        "saturday": "Samstag",
+        "sunday": "Sonntag"
+      }
+    },
+    "schedule_direction": {
+      "options": {
+        "Charging": "Laden",
+        "Discharging": "Entladen"
+      }
+    }
+  },
   "entity": {
     "sensor": {
-      "operating_mode": {
-        "name": "Betriebsmodus"
+      "battery_state_of_charge": {
+        "name": "Batterieladezustand"
+      },
+      "battery_capacity": {
+        "name": "Batteriekapazität"
+      },
+      "battery_temperature": {
+        "name": "Batterietemperatur"
+      },
+      "battery_rated_capacity": {
+        "name": "Batterie-Nennkapazität"
+      },
+      "battery_voltage": {
+        "name": "Batteriespannung"
+      },
+      "battery_current": {
+        "name": "Batteriestrom"
+      },
+      "battery_error_code": {
+        "name": "Batteriefehlercode"
       },
       "solar_power": {
         "name": "Solarleistung"
+      },
+      "battery_power": {
+        "name": "Batterieleistung"
+      },
+      "battery_charge_power": {
+        "name": "Batterieladeleistung"
+      },
+      "battery_discharge_power": {
+        "name": "Batterieentladeleistung"
+      },
+      "battery_available_capacity": {
+        "name": "Verfügbare Batteriekapazität"
+      },
+      "pv_power": {
+        "name": "PV-Leistung"
+      },
+      "grid_power": {
+        "name": "Netzleistung"
+      },
+      "offgrid_power": {
+        "name": "Inselnetzleistung"
+      },
+      "total_pv_energy": {
+        "name": "Gesamte PV-Energie"
+      },
+      "total_grid_export_energy": {
+        "name": "Gesamte Netzeinspeisung"
+      },
+      "total_grid_import_energy": {
+        "name": "Gesamter Netzbezug"
+      },
+      "total_load_energy": {
+        "name": "Gesamtverbrauch"
+      },
+      "phase_a_power": {
+        "name": "Leistung Phase A"
+      },
+      "phase_b_power": {
+        "name": "Leistung Phase B"
+      },
+      "phase_c_power": {
+        "name": "Leistung Phase C"
+      },
+      "ct_input_energy": {
+        "name": "CT-Bezugsenergie"
+      },
+      "ct_output_energy": {
+        "name": "CT-Einspeiseenergie"
+      },
+      "total_ct_power": {
+        "name": "CT-Gesamtleistung"
+      },
+      "ct_parse_state": {
+        "name": "CT-Auswertungsstatus"
+      },
+      "wifi_signal_strength": {
+        "name": "WLAN-Signalstärke"
+      },
+      "wifi_ssid": {
+        "name": "WLAN-SSID"
+      },
+      "wifi_ip_address": {
+        "name": "WLAN-IP-Adresse"
+      },
+      "wifi_gateway": {
+        "name": "WLAN-Gateway"
+      },
+      "wifi_subnet_mask": {
+        "name": "WLAN-Subnetzmaske"
+      },
+      "wifi_dns_server": {
+        "name": "WLAN-DNS-Server"
+      },
+      "device_model": {
+        "name": "Gerätemodell"
+      },
+      "firmware_version": {
+        "name": "Firmwareversion"
+      },
+      "bluetooth_mac_address": {
+        "name": "Bluetooth-MAC-Adresse"
+      },
+      "wifi_mac_address": {
+        "name": "WLAN-MAC-Adresse"
+      },
+      "device_ip_address": {
+        "name": "Geräte-IP-Adresse"
+      },
+      "operating_mode": {
+        "name": "Betriebsmodus"
+      },
+      "operation_status": {
+        "name": "Status",
+        "state": {
+          "charging": "Laden",
+          "discharging": "Entladen",
+          "standby": "Standby",
+          "mode_error": "Fehler Betriebsmodus",
+          "storage_charging": "Lagerung – Laden",
+          "storage_holding": "Lagerung – Halten",
+          "storage_solar_check": "Lagerung – Solarprüfung",
+          "storage_solar_charging": "Lagerung – Solarladen",
+          "storage_discharging": "Lagerung – Entladen"
+        }
+      },
+      "storage_status": {
+        "name": "Status Lagerung",
+        "state": {
+          "disabled": "Deaktiviert",
+          "observing": "Automatik – Beobachtung",
+          "full_charge_detected": "Lagerung – Vollladung erkannt",
+          "storage_charging": "Lagerung – Laden",
+          "storage_holding": "Lagerung – Halten",
+          "storage_solar_check": "Lagerung – Solarprüfung",
+          "storage_solar_charging": "Lagerung – Solarladen",
+          "storage_discharging": "Lagerung – Entladen"
+        }
+      },
+      "self_test": {
+        "name": "Selbsttest",
+        "state": {
+          "ok": "OK",
+          "warning": "Warnung",
+          "error": "Fehler"
+        }
       }
     },
     "binary_sensor": {
+      "battery_charging": {
+        "name": "Batterie wird geladen"
+      },
+      "battery_discharging": {
+        "name": "Batterie wird entladen"
+      },
+      "ct_meter_connected": {
+        "name": "CT-Zähler verbunden"
+      },
+      "bluetooth_connected": {
+        "name": "Bluetooth verbunden"
+      },
       "solar_surplus": {
-        "name": "Solarüberschuss"
+        "name": "Solarausgabe"
+      },
+      "integration_problem": {
+        "name": "Integrationsproblem"
       }
     },
     "select": {
@@ -146,13 +339,14 @@
           "AI": "KI-Modus",
           "Standby": "Standby (0 W)",
           "Manual": "Manuelle Leistung",
+          "Schedule": "Zeitplan",
           "Storage": "Lagerung / Winter"
         }
       }
     },
     "switch": {
       "led_ctrl": {
-        "name": "LED-Steuerung"
+        "name": "LED-Anzeige"
       },
       "automatic_storage": {
         "name": "Automatische Lagerung / Winterbetrieb"
@@ -166,38 +360,131 @@
     "button": {
       "clear_schedules": {
         "name": "Alle Zeitpläne löschen"
-      },
-      "refresh_battery": {
-        "name": "Batteriestatus aktualisieren"
-      },
-      "refresh_energy_status": {
-        "name": "Energiestatus aktualisieren"
-      },
-      "refresh_mode": {
-        "name": "Betriebsmodus und CT-Daten aktualisieren"
       }
+    }
+  },
+  "exceptions": {
+    "mode_not_confirmed": {
+      "message": "Der Venus E hat den Betriebsmodus {mode} nicht bestätigt."
+    },
+    "unknown_config_entry": {
+      "message": "Der Marstek-Konfigurationseintrag {entry_id} wurde nicht gefunden."
+    },
+    "mode_set_failed": {
+      "message": "Der Betriebsmodus {mode} konnte nicht eingestellt werden."
+    },
+    "schedule_set_failed": {
+      "message": "Der manuelle Zeitplan konnte nicht gespeichert werden."
+    },
+    "schedules_clear_failed": {
+      "message": "Die manuellen Zeitpläne konnten nicht gelöscht werden."
+    },
+    "schedule_slots_failed": {
+      "message": "Die Zeitfenster {slots} konnten nicht deaktiviert werden."
+    },
+    "ble_set_failed": {
+      "message": "Die Bluetooth-Sichtbarkeit konnte nicht geändert werden."
+    },
+    "led_set_failed": {
+      "message": "Die LED-Anzeige konnte nicht geändert werden."
+    },
+    "manual_power_failed": {
+      "message": "Die manuelle Leistung konnte nicht gespeichert oder übertragen werden."
+    },
+    "automatic_storage_failed": {
+      "message": "Der automatische Winterbetrieb konnte nicht geändert werden."
     }
   },
   "services": {
     "set_mode": {
       "name": "Betriebsmodus einstellen",
-      "description": "Ändert den Betriebsmodus des Marstek Venus E."
+      "description": "Stellt den gewünschten Betriebsmodus dauerhaft ein.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Gerät",
+          "description": "Marstek-Konfigurationseintrag des Zielgeräts."
+        },
+        "mode": {
+          "name": "Betriebsmodus",
+          "description": "Dauerhaft gewünschter Betriebsmodus."
+        }
+      }
     },
     "set_manual_schedule": {
       "name": "Manuellen Zeitplan einstellen",
-      "description": "Konfiguriert einen manuellen Lade- oder Entladezeitraum."
-    },
-    "set_passive_mode": {
-      "name": "Passiven Modus einstellen",
-      "description": "Aktiviert den passiven Modus mit einer vorgegebenen Leistung."
+      "description": "Konfiguriert ein Lade- oder Entladezeitfenster.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Gerät",
+          "description": "Marstek-Konfigurationseintrag des Zielgeräts."
+        },
+        "time_num": {
+          "name": "Zeitfenster",
+          "description": "Nummer des Zeitfensters von 0 bis 9."
+        },
+        "start_time": {
+          "name": "Startzeit",
+          "description": "Beginn des Zeitfensters."
+        },
+        "end_time": {
+          "name": "Endzeit",
+          "description": "Muss nach der Startzeit liegen."
+        },
+        "week_set": {
+          "name": "Wochentage",
+          "description": "Bitmaske von 1 bis 127; 127 steht für jeden Tag."
+        },
+        "mode": {
+          "name": "Richtung",
+          "description": "Laden oder Entladen."
+        },
+        "power": {
+          "name": "Leistung",
+          "description": "Positiver Leistungsbetrag von 100 bis 2500 W."
+        },
+        "enable": {
+          "name": "Zeitfenster aktivieren",
+          "description": "Aktiviert das Zeitfenster auf dem Gerät."
+        }
+      }
     },
     "clear_all_schedules": {
       "name": "Alle manuellen Zeitpläne löschen",
-      "description": "Deaktiviert alle zehn manuellen Zeitfenster (0–9)."
+      "description": "Deaktiviert alle zehn manuellen Lade- und Entladezeitfenster.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Gerät",
+          "description": "Marstek-Konfigurationseintrag des Zielgeräts."
+        }
+      }
     },
-    "change_operating_mode": {
-      "name": "Betriebsmodus ändern",
-      "description": "Ändert den Betriebsmodus und konfiguriert optional manuelle Zeitfenster."
+    "set_ble_adv": {
+      "name": "Bluetooth-Sichtbarkeit steuern",
+      "description": "Aktiviert oder deaktiviert die Bluetooth-Sichtbarkeit.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Gerät",
+          "description": "Marstek-Konfigurationseintrag des Zielgeräts."
+        },
+        "enable": {
+          "name": "Aktivieren",
+          "description": "Bluetooth-Sichtbarkeit ein- oder ausschalten."
+        }
+      }
+    },
+    "set_led_ctrl": {
+      "name": "LED-Anzeige steuern",
+      "description": "Schaltet die LED-Anzeige des Geräts ein oder aus.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Gerät",
+          "description": "Marstek-Konfigurationseintrag des Zielgeräts."
+        },
+        "enabled": {
+          "name": "Aktiviert",
+          "description": "LED-Anzeige ein- oder ausschalten."
+        }
+      }
     }
   }
 }

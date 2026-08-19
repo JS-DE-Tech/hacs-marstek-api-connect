@@ -4,6 +4,7 @@ from __future__ import annotations
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -54,4 +55,10 @@ class MarstekManualPowerNumber(CoordinatorEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Persist and, while Manual is active, apply a new target."""
-        await self.coordinator.async_set_manual_power(int(value))
+        try:
+            await self.coordinator.async_set_manual_power(int(value))
+        except Exception as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="manual_power_failed",
+            ) from err

@@ -72,7 +72,11 @@ class MarstekBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self.sensor_id = sensor_id
         self.sensor_config = sensor_config
         
-        self._attr_name = sensor_config["name"]
+        self._attr_translation_key = sensor_config.get(
+            "translation_key", sensor_id
+        )
+        self._attr_has_entity_name = True
+        self._attr_name = None
         self._attr_icon = sensor_config.get("icon")
         self._attr_device_class = sensor_config.get("device_class")
         
@@ -99,15 +103,17 @@ class MarstekBinarySensor(CoordinatorEntity, BinarySensorEntity):
 
         if source == "derived" and self.sensor_id == "solar_surplus":
             return self.coordinator.solar_surplus
+        if source == "derived" and self.sensor_id == "integration_problem":
+            return self.coordinator.health_report()["status"] == "error"
         
         # Check appropriate data source based on sensor configuration
         if source == "battery" and self.coordinator.battery_data:
-            # From Bat.GetStatus (manual refresh)
+            # Data from the slower Bat.GetStatus poll.
             if attr_path in self.coordinator.battery_data:
                 value = self.coordinator.battery_data[attr_path]
                 return bool(value)
         elif source == "mode" and self.coordinator.mode_data:
-            # From ES.GetMode (manual refresh)
+            # Data from the slower ES.GetMode poll.
             if attr_path in self.coordinator.mode_data:
                 value = self.coordinator.mode_data[attr_path]
                 return bool(value)
@@ -129,6 +135,9 @@ class MarstekBinarySensor(CoordinatorEntity, BinarySensorEntity):
         Returns:
             True if data is available
         """
+        if self.sensor_id == "integration_problem":
+            # The problem sensor must stay visible to report connection loss.
+            return True
         if self.sensor_id == "solar_surplus":
             return (
                 self.coordinator.last_update_success
@@ -139,6 +148,10 @@ class MarstekBinarySensor(CoordinatorEntity, BinarySensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return the configured solar-surplus thresholds."""
+        if self.sensor_id == "integration_problem":
+            return {
+                "self_test": self.coordinator.health_report()["status"]
+            }
         if self.sensor_id != "solar_surplus":
             return None
         return {

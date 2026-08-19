@@ -22,21 +22,18 @@ from .const import (
     CONF_SOLAR_SURPLUS_OFF_W,
     CONF_SOLAR_SURPLUS_ON_MINUTES,
     CONF_SOLAR_SURPLUS_ON_W,
-    CONF_TIMEOUT,
     DEFAULT_SOLAR_SURPLUS_OFF_MINUTES,
     DEFAULT_SOLAR_SURPLUS_OFF_W,
     DEFAULT_SOLAR_SURPLUS_ON_MINUTES,
     DEFAULT_SOLAR_SURPLUS_ON_W,
+    DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
-    MODE_AUTO,
-    MODE_AI,
     MODE_MANUAL,
     MODE_STANDBY,
-    MODE_STORAGE,
     SELECTABLE_MODES,
-    VALID_MODES,
 )
+from .logic import week_set_from_days
 from .udp_client import MarstekUDPClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -56,7 +53,9 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.discovered_devices: list[tuple[str, int, dict[str, Any]]] = []
     
     @staticmethod
-    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> MarstekOptionsFlow:
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> MarstekOptionsFlow:
         """Get the options flow for this handler."""
         return MarstekOptionsFlow(config_entry)
 
@@ -107,7 +106,9 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Attempt automatic discovery
         try:
             _LOGGER.debug("Starting Marstek device discovery...")
-            self.discovered_devices = await MarstekUDPClient.discover(timeout=15.0, port=30000)
+            self.discovered_devices = await MarstekUDPClient.discover(
+                timeout=15.0, port=DEFAULT_PORT
+            )
             _LOGGER.debug("Found %d device(s)", len(self.discovered_devices))
         except Exception as err:
             _LOGGER.error("Device discovery failed: %s", err)
@@ -115,7 +116,8 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if not self.discovered_devices:
             _LOGGER.warning(
-                "No Marstek devices responded to broadcast discovery; falling back to manual IP entry"
+                "No Marstek devices responded to broadcast discovery; "
+                "falling back to manual IP entry"
             )
             return await self.async_step_manual_ip()
 
@@ -139,7 +141,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         if user_input is not None:
             selected = user_input.get(CONF_IP_ADDRESS)
-            port = user_input.get(CONF_PORT, 30000)
+            port = user_input.get(CONF_PORT, DEFAULT_PORT)
             ble_mac = user_input.get(CONF_BLE_MAC, "")
 
             _LOGGER.debug("User selected device value: %s (port %s)", selected, port)
@@ -158,8 +160,8 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "no_device_selected"
             else:
                 # For discovered devices, extract BLE MAC from the discovery response
-                # Since the device only responds to broadcast, we can't verify unicast connection
-                # But if it responded to discovery, it's reachable
+                # A discovery response proves reachability even though this
+                # firmware does not answer unicast connection checks.
                 for disc_ip, disc_port, payload in self.discovered_devices:
                     if disc_ip == ip_address:
                         device_info = payload.get("result", {})
@@ -180,30 +182,35 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_clear_schedules()
         
         # Build device list for selection
-        device_options: dict[str, str] = {}
+        device_options: list[str | dict[str, str]] = []
         if self.discovered_devices:
             for ip, port, payload in self.discovered_devices:
                 device_info = payload.get("result", {})
-                device_name = device_info.get("device", "Unknown")
+                device_name = device_info.get("device") or "Marstek Venus E"
                 device_ip = device_info.get("ip", ip)
-                src = payload.get("src", "Unknown")
-                # Format: Device IP - Device Name [src]
-                label = f"{device_ip} - {device_name} [{src}]"
-                device_options[device_ip] = label
+                src = payload.get("src")
+                label = f"{device_ip} - {device_name}"
+                if src:
+                    label += f" [{src}]"
+                device_options.append({"value": device_ip, "label": label})
         
         # Add setup actions.
-        device_options[ACTION_RETRY_DISCOVERY] = "Retry device discovery"
-        device_options[ACTION_MANUAL] = "Enter IP manually"
+        device_options.extend([ACTION_RETRY_DISCOVERY, ACTION_MANUAL])
         
         # Build schema
         schema = {}
         
         if device_options:
-            schema[vol.Required(CONF_IP_ADDRESS)] = vol.In(device_options)
+            schema[vol.Required(CONF_IP_ADDRESS)] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=device_options,
+                    translation_key="device_selection",
+                )
+            )
         else:
             schema[vol.Required(CONF_IP_ADDRESS)] = str
         
-        schema[vol.Optional(CONF_PORT, default=30000)] = int
+        schema[vol.Optional(CONF_PORT, default=DEFAULT_PORT)] = int
         schema[vol.Optional(CONF_BLE_MAC, default="")] = str
         
         return self.async_show_form(
@@ -229,7 +236,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             ip_address = user_input.get(CONF_IP_ADDRESS)
-            port = user_input.get(CONF_PORT, 30000)
+            port = user_input.get(CONF_PORT, DEFAULT_PORT)
             ble_mac = user_input.get(CONF_BLE_MAC, "")
 
             _LOGGER.debug("Manual IP provided: %s:%s", ip_address, port)
@@ -240,7 +247,9 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_ip"
             else:
                 # Check if already configured
-                await self.async_set_unique_id(ble_mac.lower() if ble_mac else ip_address)
+                await self.async_set_unique_id(
+                    ble_mac.lower() if ble_mac else ip_address
+                )
                 self._abort_if_unique_id_configured()
                 
                 # Store the data for potential schedule clearing
@@ -254,7 +263,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Required(CONF_IP_ADDRESS): str,
-                vol.Optional(CONF_PORT, default=30000): int,
+                vol.Optional(CONF_PORT, default=DEFAULT_PORT): int,
                 vol.Optional(CONF_BLE_MAC, default=""): str,
             }
         )
@@ -283,13 +292,17 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             
             # Get device info from context
             ip_address = self.context.get("ip_address")
-            port = self.context.get("port", 30000)
+            port = self.context.get("port", DEFAULT_PORT)
             ble_mac = self.context.get("ble_mac", "")
             
             # If user wants to clear schedules, do it now
             if clear_schedules:
                 try:
-                    _LOGGER.info("Clearing all manual schedules for %s:%s", ip_address, port)
+                    _LOGGER.info(
+                        "Clearing all manual schedules for %s:%s",
+                        ip_address,
+                        port,
+                    )
                     client = MarstekUDPClient(ip_address, port, timeout=10.0)
                     results = await client.clear_all_manual_schedules()
                     _LOGGER.info(
@@ -479,13 +492,8 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
                     CONF_ENABLED_MODES, default=current_modes
                 ): selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        options=[
-                            {"label": "Auto", "value": MODE_AUTO},
-                            {"label": "AI", "value": MODE_AI},
-                            {"label": "Standby (0 W)", "value": MODE_STANDBY},
-                            {"label": "Manual power", "value": MODE_MANUAL},
-                            {"label": "Storage / Winter", "value": MODE_STORAGE},
-                        ],
+                        options=SELECTABLE_MODES,
+                        translation_key="operating_mode_options",
                         multiple=True,
                         mode=selector.SelectSelectorMode.LIST,
                     )
@@ -514,7 +522,9 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
                         time_num=time_num,
                         start_time=user_input.get("start_time"),
                         end_time=user_input.get("end_time"),
-                        week_set=self._calculate_week_set(user_input.get("days", [])),
+                        week_set=week_set_from_days(
+                            user_input.get("days", [])
+                        ),
                         power=user_input.get("power"),
                         enable=user_input.get("enable", True),
                     )
@@ -539,22 +549,23 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
                 vol.Required("days", default=[]): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         options=[
-                            {"label": "Monday", "value": "monday"},
-                            {"label": "Tuesday", "value": "tuesday"},
-                            {"label": "Wednesday", "value": "wednesday"},
-                            {"label": "Thursday", "value": "thursday"},
-                            {"label": "Friday", "value": "friday"},
-                            {"label": "Saturday", "value": "saturday"},
-                            {"label": "Sunday", "value": "sunday"},
+                            "monday",
+                            "tuesday",
+                            "wednesday",
+                            "thursday",
+                            "friday",
+                            "saturday",
+                            "sunday",
                         ],
+                        translation_key="weekdays",
                         multiple=True,
                         mode=selector.SelectSelectorMode.LIST,
                     )
                 ),
-                vol.Required("power", default=0): selector.NumberSelector(
+                vol.Required("power", default=-500): selector.NumberSelector(
                     selector.NumberSelectorConfig(
-                        min=-10000,
-                        max=10000,
+                        min=-2500,
+                        max=2500,
                         step=100,
                         unit_of_measurement="W",
                         mode=selector.NumberSelectorMode.BOX,
@@ -567,9 +578,6 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="configure_manual_mode",
             data_schema=schema,
-            description_placeholders={
-                "power_info": "Use negative values to charge (e.g., -1000W), positive to discharge (e.g., 1000W). Note: The API does not support reading back schedules, so configure carefully."
-            },
         )
     
     async def async_step_configure_update_interval(
@@ -586,7 +594,9 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
             new_options[CONF_MODE_SCAN_INTERVAL] = mode_interval
             
             # Get coordinator and update its interval
-            coordinator = self.hass.data.get(DOMAIN, {}).get(self._config_entry.entry_id)
+            coordinator = self.hass.data.get(DOMAIN, {}).get(
+                self._config_entry.entry_id
+            )
             if coordinator:
                 from datetime import timedelta
                 coordinator.update_interval = timedelta(seconds=fast_interval)
@@ -620,7 +630,7 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
                         min=10,
                         max=300,
                         step=5,
-                        unit_of_measurement="seconds",
+                        unit_of_measurement="s",
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
@@ -632,32 +642,14 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
                         min=30,
                         max=600,
                         step=10,
-                        unit_of_measurement="seconds",
+                        unit_of_measurement="s",
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
             }
         )
-        
+
         return self.async_show_form(
             step_id="configure_update_interval",
             data_schema=schema,
         )
-    
-    def _calculate_week_set(self, days: list[str]) -> int:
-        """Calculate week_set bitmask from day names."""
-        day_map = {
-            "monday": 1,
-            "tuesday": 2,
-            "wednesday": 4,
-            "thursday": 8,
-            "friday": 16,
-            "saturday": 32,
-            "sunday": 64,
-        }
-        
-        week_set = 0
-        for day in days:
-            week_set |= day_map.get(day, 0)
-        
-        return week_set if week_set > 0 else 127  # Default to all days if none selected

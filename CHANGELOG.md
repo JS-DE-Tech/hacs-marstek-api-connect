@@ -1,5 +1,115 @@
 # Changelog
 
+## [2.8.0-beta.1] - 2026-08-19
+
+### Breaking
+- `Status` and `Storage status` are now enum sensors with translated states.
+  Their raw states changed from German text (`Laden`, `Lagerung - Halten`,
+  `Fehler Betriebsmodus`, ...) to language-independent keys (`charging`,
+  `storage_holding`, `mode_error`, ...). Automations or dashboard cards that
+  compare these sensors against the old German strings must be updated. Entity
+  IDs are unchanged.
+- The day counters that used to be part of the `Storage status` text are now
+  attributes: `low_soc_days`, `low_soc_days_required`, `full_soc_days` and
+  `full_soc_days_required`.
+- Remove the redundant `set_passive_mode` and `change_operating_mode` services.
+  Use the persistent `set_mode` service, Manual power slider and
+  `set_manual_schedule` service instead.
+
+### Added
+- GitHub Actions validation for the regression suite, Python compilation, HACS
+  repository rules and Home Assistant hassfest, plus weekly Dependabot updates
+  for versioned workflow actions.
+- A separate persistent `Schedule` operating mode that maps to the physical
+  Marstek Manual mode, while `Manual` remains the direct Passive power target.
+- `Self-test` sensor (OK / Warning / Error) with per-check details as
+  attributes: device connectivity, setpoint supervision, Passive renewal age,
+  mode deviations of the last 24 hours, solar-sensor validity and winter
+  day-tracking gaps.
+- `Problem` binary sensor (device class `problem`) that turns on while a
+  self-test reports `error`, ready for notification automations.
+- Mode-deviation incidents are deduplicated per continuous incident and
+  survive restarts for 24 hours.
+- Unit tests for the solar-charging state machine, incident deduplication and
+  translation completeness of every enum sensor state.
+- Regression tests for power/status normalization, IPv4 cleanup,
+  time-weighted solar averages, weekday masks, UDP request serialization and
+  cleanup, device RPC payloads, schedule fallback, discovery targets,
+  duplicate packets, metadata and complete translation placeholders.
+
+### Fixed
+- Ignore duplicate or late UDP response datagrams after a request has already
+  completed, preventing `InvalidStateError` on devices or networks that deliver
+  the same packet more than once.
+- Reject schedule slot numbers outside 0–9 instead of silently sending an
+  unchanged schedule to the device.
+- Keep restore incidents and their attempt counter active until a later regular
+  `ES.GetMode` poll confirms that the device retained the requested mode.
+  Standby confirmation now uses three consecutive fast ±30 W samples instead
+  of samples taken only during the slower supervision cycle.
+- Serialize UDP requests per device and close every datagram transport in a
+  `finally` block, including the final timeout path.
+- Remove the stale `set_dod` service declaration, obsolete manual-refresh
+  button implementations and their unused coordinator helpers.
+- Renew persistent Standby/Manual Passive commands on the fast update cycle
+  (renewal after 300 seconds, countdown 600 seconds). The renewal was
+  previously gated behind the two-minute supervision interval and the
+  three-sample Standby confirmation, so the 300-second countdown always
+  expired and the device cyclically fell out of Standby.
+- Mode supervision and winter-storage control no longer stop permanently after
+  five failed restore attempts; they keep retrying every 30 minutes and reset
+  automatically once the device confirms the setpoint again.
+- Reset the shared restore backoff on every controller transition (manual
+  Storage on/off, automatic winter switch, observation/storage changes), so a
+  pending retry delay from the previous controller cannot postpone the first
+  storage action by up to 30 minutes.
+- Restore the dead band between the solar-charging phase and Auto. The phase is
+  entered above +100 W average battery power and left at 0 W or below, so an
+  average hovering at the entry threshold no longer flips the phase and resends
+  redundant Auto commands.
+- Apply the persistent confirmation policy to Storage phases as well. Repeated
+  device dropbacks now accumulate across accepted writes and clear only after a
+  later regular `ES.GetMode` poll confirms the requested phase.
+- Preserve retry state across a failed Storage phase transition and commit
+  phase timers/cooldowns only after the required physical command succeeds.
+- Validate restored winter-controller states, counters, SOC values and tracking
+  timestamps before using persisted data.
+- Continue supervising and renewing the active Storage command while SOC data
+  is temporarily unavailable; only phase transitions wait for valid SOC.
+
+### Changed
+- Remove stale development instructions, unused imports, constants and legacy
+  UDP-client aliases. Keep sensor display names in the translation files only,
+  replace duplicated port literals with the shared default and normalize the
+  Python formatting without changing entity IDs or runtime behavior.
+- Complete and align all German and English setup, options, entity, selector,
+  service and error translations. Remove the incomplete French translation so
+  Home Assistant no longer mixes translated and English fallback labels.
+- Define the complete manual and automatic Storage transition tables as pure,
+  tested state functions. Logical solar transitions that share physical Auto no
+  longer resend an identical command, while changes between -500 W charging,
+  0 W holding and Auto still apply immediately.
+- Route service mode changes through the same persistent setpoint logic as the
+  Operating Mode selector. Schedule changes no longer leave the device in a
+  different mode, and every service requires explicit `config_entry_id`
+  targeting so automations remain deterministic with multiple devices.
+- Keep the LED switch synchronized when the LED service is called and surface
+  rejected service commands as Home Assistant errors instead of logging and
+  silently succeeding.
+- Rename the `Solar Surplus` binary sensor to `Solar Output` and translate it,
+  the self-test and both status sensors into English and German. The
+  existing entity identity is retained for dashboard and automation
+  compatibility.
+- Raise the failed mode-selection error as a translated exception instead of a
+  hardcoded German message.
+- Supervise the persistent Auto setpoint during the observation phase of the
+  automatic winter controller as well, so external app changes are corrected.
+- The Operating Mode selector dynamically includes Storage while the winter
+  controller holds the battery, even when Storage is not part of the
+  configured mode list.
+- Persist distinct operating-mode dropout incidents for 24 hours across
+  integration reloads and Home Assistant restarts.
+
 ## [2.7.0] - 2026-07-23
 
 ### Added

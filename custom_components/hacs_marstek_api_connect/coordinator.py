@@ -7,10 +7,13 @@ from collections import deque
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.update_coordinator import (
+    DataUpdateCoordinator,
+    UpdateFailed,
+)
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -28,37 +31,55 @@ from .const import (
     DEFAULT_SOLAR_SURPLUS_ON_MINUTES,
     DEFAULT_SOLAR_SURPLUS_ON_W,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_PORT,
     DOMAIN,
     MODE_AUTO,
     MODE_PASSIVE,
     MODE_MANUAL,
+    MODE_SCHEDULE,
     MODE_STANDBY,
     MODE_STORAGE,
     SELECTABLE_MODES,
     STORAGE_AUTO_START_SOC,
     STORAGE_CHARGE_POWER,
     STORAGE_CHARGE_START_SOC,
+    STORAGE_EXIT_FULL_CHARGE_DAYS,
+    STORAGE_OBSERVATION_DAYS,
+    STORAGE_PHASE_STATES,
     STORAGE_TARGET_SOC,
     BATTERY_POWER_THRESHOLD_W,
+    BATTERY_POWER_AVERAGE_SECONDS,
+    MODE_ENFORCEMENT_RECOVERY_SECONDS,
+    MODE_ENFORCEMENT_RETRY_SECONDS,
+    PASSIVE_CD_TIME_SECONDS,
+    PASSIVE_KEEPALIVE_SECONDS,
+    SOLAR_CHARGING_EXIT_W,
+    SOLAR_CHARGE_CONFIRMATION_SECONDS,
     SOLAR_CHECK_COOLDOWN_SECONDS,
     SOLAR_CHECK_MAX_SECONDS,
+    STORAGE_FULL_CHARGE_ARM_SOC,
+    STORAGE_FULL_CHARGE_SOC,
+    STORAGE_VALID_DAY_HOURS,
+)
+from .logic import (
+    available_battery_capacity,
+    append_sample,
+    automatic_storage_next_phase,
+    expected_physical_mode,
+    is_new_dropout,
+    manual_storage_next_phase,
+    mode_feedback_confirmed,
+    normalize_ipv4,
+    normalized_battery_power,
+    operation_status_from_power,
+    storage_command_required,
+    storage_phase_command,
+    storage_phase_changes_command,
+    time_weighted_average,
 )
 from .udp_client import MarstekUDPClient
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _normalize_ipv4(value: Any) -> Any:
-    """Remove harmless leading zeroes from an IPv4 address."""
-    if not isinstance(value, str):
-        return value
-    parts = value.strip().split(".")
-    if len(parts) != 4 or any(not part.isdigit() for part in parts):
-        return value
-    numbers = [int(part, 10) for part in parts]
-    if any(number > 255 for number in numbers):
-        return value
-    return ".".join(str(number) for number in numbers)
 
 
 class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
@@ -87,7 +108,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self.entry = entry
         self.client = MarstekUDPClient(
             ip_address=entry.data[CONF_IP_ADDRESS],
-            port=entry.data.get(CONF_PORT, 30000),
+            port=entry.data.get(CONF_PORT, DEFAULT_PORT),
         )
         self.data: dict[str, Any] = {}
         # Storage for manual API call results
@@ -130,6 +151,9 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self._mode_enforcement_error = False
         self._mode_enforcement_next_attempt: datetime | None = None
         self._last_mode_enforcement_check: datetime | None = None
+        self._last_mode_feedback_at: datetime | None = None
+        self._mode_confirmation_required_after: datetime | None = None
+        self._pending_storage_phase: str | None = None
         self._mode_enforcement_interval = timedelta(minutes=2)
         self._desired_mode_store = Store(
             hass, 1, f"{DOMAIN}.{entry.entry_id}.desired_operating_mode"
@@ -140,6 +164,15 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             hass, 1, f"{DOMAIN}.{entry.entry_id}.manual_power"
         )
         self._passive_keepalive_due: datetime | None = None
+        self._last_passive_renewal: datetime | None = None
+        self._last_successful_update: datetime | None = None
+        self._mode_dropouts: deque[tuple[datetime, str]] = deque(maxlen=100)
+        self._active_mode_dropout: str | None = None
+        self._solar_sensor_problem: str | None = None
+        self._last_invalid_tracking_day: tuple[str, str] | None = None
+        self._diagnostics_store = Store(
+            hass, 1, f"{DOMAIN}.{entry.entry_id}.diagnostics"
+        )
         self.solar_power_entity = entry.options.get(CONF_SOLAR_POWER_ENTITY)
         self.solar_surplus_on_w = float(
             entry.options.get(
@@ -182,18 +215,52 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         """Restore the automatic winter controller and its counters."""
         stored = await self._automatic_storage.async_load() or {}
         self.automatic_storage_enabled = bool(stored.get("enabled", False))
-        self._automatic_controller_state = stored.get("state", "observing")
+        stored_state = stored.get("state", "observing")
+        self._automatic_controller_state = (
+            stored_state
+            if stored_state in ("observing", "storage")
+            else "observing"
+        )
         stored_phase = stored.get("storage_phase")
         self._storage_phase = (
-            "holding" if stored_phase == "solar_check" else stored_phase
+            "holding"
+            if stored_phase == "solar_check"
+            else stored_phase
+            if isinstance(stored_phase, str)
+            and stored_phase in STORAGE_PHASE_STATES
+            else None
         )
-        self._low_soc_days = int(stored.get("low_soc_days", 0))
-        self._full_soc_days = int(stored.get("full_soc_days", 0))
         try:
+            self._low_soc_days = max(
+                0,
+                min(
+                    STORAGE_OBSERVATION_DAYS,
+                    int(stored.get("low_soc_days", 0)),
+                ),
+            )
+            self._full_soc_days = max(
+                0,
+                min(
+                    STORAGE_EXIT_FULL_CHARGE_DAYS,
+                    int(stored.get("full_soc_days", 0)),
+                ),
+            )
             tracking_day = stored.get("tracking_day")
-            self._tracking_day = date.fromisoformat(tracking_day) if tracking_day else None
-            self._tracking_max_soc = stored.get("tracking_max_soc")
-            self._tracking_min_soc = stored.get("tracking_min_soc")
+            self._tracking_day = (
+                date.fromisoformat(tracking_day) if tracking_day else None
+            )
+            tracking_max_soc = stored.get("tracking_max_soc")
+            tracking_min_soc = stored.get("tracking_min_soc")
+            self._tracking_max_soc = (
+                float(tracking_max_soc)
+                if tracking_max_soc is not None
+                else None
+            )
+            self._tracking_min_soc = (
+                float(tracking_min_soc)
+                if tracking_min_soc is not None
+                else None
+            )
             self._tracking_had_solar_charge = bool(
                 stored.get("tracking_had_solar_charge", False)
             )
@@ -202,16 +269,39 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             )
             first_seen = stored.get("tracking_first_seen")
             last_seen = stored.get("tracking_last_seen")
-            self._tracking_first_seen = datetime.fromisoformat(first_seen) if first_seen else None
-            self._tracking_last_seen = datetime.fromisoformat(last_seen) if last_seen else None
+            self._tracking_first_seen = (
+                datetime.fromisoformat(first_seen) if first_seen else None
+            )
+            self._tracking_last_seen = (
+                datetime.fromisoformat(last_seen) if last_seen else None
+            )
             cooldown_until = stored.get("solar_check_cooldown_until")
             self._solar_check_cooldown_until = (
                 datetime.fromisoformat(cooldown_until)
                 if cooldown_until
                 else None
             )
-        except (TypeError, ValueError):
+            if (
+                self._tracking_first_seen is not None
+                and self._tracking_last_seen is not None
+                and self._tracking_last_seen < self._tracking_first_seen
+            ):
+                raise ValueError("Invalid automatic-storage observation range")
+        except (TypeError, ValueError, OverflowError):
+            self._low_soc_days = 0
+            self._full_soc_days = 0
             self._reset_day_tracking()
+
+        if not self.automatic_storage_enabled:
+            self._automatic_controller_state = "observing"
+            self._storage_phase = None
+            self._low_soc_days = 0
+            self._full_soc_days = 0
+            self._solar_check_cooldown_until = None
+            self._reset_day_tracking()
+        elif self._automatic_controller_state == "observing":
+            self._storage_phase = None
+            self._full_soc_days = 0
 
     async def async_load_desired_operating_mode(self) -> None:
         """Restore the persistent operating-mode setpoint."""
@@ -229,17 +319,70 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             power = 0
         self.manual_power = max(-2400, min(2400, power))
 
+    async def async_load_diagnostics(self) -> None:
+        """Restore mode-deviation events recorded during the last 24 hours."""
+        stored = await self._diagnostics_store.async_load() or {}
+        cutoff = datetime.now() - timedelta(hours=24)
+        restored: list[tuple[datetime, str]] = []
+        for item in stored.get("mode_dropouts", []):
+            try:
+                timestamp = datetime.fromisoformat(item["timestamp"])
+                reason = str(item["reason"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if timestamp >= cutoff:
+                restored.append((timestamp, reason))
+        self._mode_dropouts.extend(restored[-100:])
+
+    def _diagnostics_data(self) -> dict[str, Any]:
+        """Return persistent diagnostic history."""
+        return {
+            "mode_dropouts": [
+                {"timestamp": timestamp.isoformat(), "reason": reason}
+                for timestamp, reason in self._mode_dropouts_last_24h(
+                    datetime.now()
+                )
+            ]
+        }
+
+    def _reset_mode_enforcement(self) -> None:
+        """Grant a controller change a fresh set of restore attempts."""
+        self._mode_enforcement_failures = 0
+        self._mode_enforcement_error = False
+        self._mode_enforcement_next_attempt = None
+        self._mode_confirmation_required_after = None
+        self._pending_storage_phase = None
+        self._active_mode_dropout = None
+
+    def _schedule_mode_enforcement_retry(self, now: datetime) -> None:
+        """Apply the shared retry policy after a failed mode attempt."""
+        if self._mode_enforcement_failures >= 5:
+            self._mode_enforcement_error = True
+            delay = MODE_ENFORCEMENT_RECOVERY_SECONDS
+        else:
+            delay = MODE_ENFORCEMENT_RETRY_SECONDS
+        self._mode_enforcement_next_attempt = now + timedelta(seconds=delay)
+
     async def async_set_desired_operating_mode(self, mode: str) -> None:
         """Persist a new operating-mode setpoint and reset enforcement."""
         if mode not in SELECTABLE_MODES:
             raise ValueError(f"Unsupported desired operating mode: {mode}")
         self.desired_operating_mode = mode
-        self._mode_enforcement_failures = 0
-        self._mode_enforcement_error = False
-        self._mode_enforcement_next_attempt = None
+        self._reset_mode_enforcement()
         self._standby_zero_samples = 0
         await self._desired_mode_store.async_save({"mode": mode})
         self.async_update_listeners()
+
+    async def async_select_operating_mode(self, mode: str) -> None:
+        """Persist and apply a user-facing operating-mode selection."""
+        await self.async_set_desired_operating_mode(mode)
+        if self.automatic_storage_enabled:
+            await self.async_set_automatic_storage(False, set_auto=False)
+        if mode == MODE_STORAGE:
+            await self.async_enable_storage_mode()
+            return
+        await self.async_disable_storage_mode()
+        await self.async_apply_desired_operating_mode()
 
     async def async_set_manual_power(self, power: int) -> None:
         """Persist the manual power target and apply it while Manual is active."""
@@ -247,9 +390,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             raise ValueError("Manual power must be between -2400 and 2400 W")
         self.manual_power = int(power)
         await self._manual_power_store.async_save({"power": self.manual_power})
-        self._mode_enforcement_failures = 0
-        self._mode_enforcement_error = False
-        self._mode_enforcement_next_attempt = None
+        self._reset_mode_enforcement()
         if (
             self.desired_operating_mode == MODE_MANUAL
             and not self.automatic_storage_enabled
@@ -261,15 +402,21 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
     async def async_apply_desired_operating_mode(self) -> None:
         """Apply the persistent UI mode to the physical device."""
         if self.desired_operating_mode == MODE_STANDBY:
-            self._standby_zero_samples = 0
-            result = await self.client.set_passive_mode(power=0, cd_time=300)
+            result = await self.client.set_passive_mode(
+                power=0, cd_time=PASSIVE_CD_TIME_SECONDS
+            )
             physical_mode = MODE_PASSIVE
         elif self.desired_operating_mode == MODE_MANUAL:
             result = await self.client.set_passive_mode(
-                power=self.manual_power, cd_time=300
+                power=self.manual_power, cd_time=PASSIVE_CD_TIME_SECONDS
             )
             physical_mode = MODE_PASSIVE
+        elif self.desired_operating_mode == MODE_SCHEDULE:
+            self._passive_keepalive_due = None
+            await self.set_mode(MODE_MANUAL)
+            return
         else:
+            self._passive_keepalive_due = None
             await self.set_mode(self.desired_operating_mode)
             return
 
@@ -299,7 +446,10 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 f"(reported: {confirmed_mode})"
             )
 
-        self._passive_keepalive_due = datetime.now() + timedelta(seconds=240)
+        self._passive_keepalive_due = datetime.now() + timedelta(
+            seconds=PASSIVE_KEEPALIVE_SECONDS
+        )
+        self._last_passive_renewal = datetime.now()
         self.mode_data.update(confirmed_mode_data)
         self.mode_data["mode"] = physical_mode
         if self.data is not None:
@@ -318,13 +468,23 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             "storage_phase": self._storage_phase,
             "low_soc_days": self._low_soc_days,
             "full_soc_days": self._full_soc_days,
-            "tracking_day": self._tracking_day.isoformat() if self._tracking_day else None,
+            "tracking_day": (
+                self._tracking_day.isoformat() if self._tracking_day else None
+            ),
             "tracking_max_soc": self._tracking_max_soc,
             "tracking_min_soc": self._tracking_min_soc,
             "tracking_had_solar_charge": self._tracking_had_solar_charge,
             "tracking_full_charge_event": self._tracking_full_charge_event,
-            "tracking_first_seen": self._tracking_first_seen.isoformat() if self._tracking_first_seen else None,
-            "tracking_last_seen": self._tracking_last_seen.isoformat() if self._tracking_last_seen else None,
+            "tracking_first_seen": (
+                self._tracking_first_seen.isoformat()
+                if self._tracking_first_seen
+                else None
+            ),
+            "tracking_last_seen": (
+                self._tracking_last_seen.isoformat()
+                if self._tracking_last_seen
+                else None
+            ),
             "solar_check_cooldown_until": (
                 self._solar_check_cooldown_until.isoformat()
                 if self._solar_check_cooldown_until
@@ -350,133 +510,61 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
 
     @property
     def automatic_storage_status(self) -> str:
-        """Return the status of the automatic winter controller."""
+        """Return the translated state of the automatic winter controller."""
         if not self.automatic_storage_enabled:
-            return "Deaktiviert"
+            return "disabled"
         if self._automatic_controller_state == "observing":
-            return f"Automatik - Beobachtung ({self._low_soc_days}/5 Tage)"
-
+            return "observing"
         if self._tracking_full_charge_event:
-            count = min(2, self._full_soc_days + 1)
-            return f"Lagerung - Vollladung erkannt ({count}/2 Tage)"
+            return "full_charge_detected"
+        return STORAGE_PHASE_STATES.get(self._storage_phase, "storage_holding")
+
+    @property
+    def storage_status_attributes(self) -> dict[str, Any]:
+        """Return the day counters behind the automatic winter state."""
+        full_soc_days = self._full_soc_days
+        if self._tracking_full_charge_event:
+            full_soc_days = min(
+                STORAGE_EXIT_FULL_CHARGE_DAYS, self._full_soc_days + 1
+            )
         return {
-            "charging": "Lagerung - Laden",
-            "holding": "Lagerung - Halten",
-            "solar_check": "Lagerung - Solarprüfung",
-            "solar_charging": "Lagerung - Solarladen",
-            "auto": "Lagerung - Entladen",
-        }.get(self._storage_phase, "Lagerung - Halten")
+            "storage_phase": self._storage_phase,
+            "low_soc_days": self._low_soc_days,
+            "low_soc_days_required": STORAGE_OBSERVATION_DAYS,
+            "full_soc_days": full_soc_days,
+            "full_soc_days_required": STORAGE_EXIT_FULL_CHARGE_DAYS,
+        }
 
     @property
     def operation_status(self) -> str | None:
-        """Return a user-facing charge/discharge/storage status."""
-        if self._mode_enforcement_error:
-            return "Fehler Betriebsmodus"
-        if self.storage_mode_enabled:
-            return {
-                "charging": "Lagerung - Laden",
-                "holding": "Lagerung - Halten",
-                "solar_check": "Lagerung - Solarprüfung",
-                "solar_charging": "Lagerung - Solarladen",
-                "auto": "Lagerung - Entladen",
-            }.get(self._storage_phase)
-
-        battery_power = self.data.get("bat_power") if self.data else None
-        invert_power = False
-        if battery_power is None and self.data:
-            # Venus E 3.0 firmware commonly omits bat_power. Its ongrid_power
-            # reports the inverter flow with the opposite sign: negative while
-            # charging and positive while discharging.
-            battery_power = self.data.get("ongrid_power")
-            invert_power = True
-        if battery_power is None:
-            return None
-        try:
-            power = float(battery_power)
-        except (TypeError, ValueError):
-            return None
-
-        if invert_power:
-            power = -power
-
-        if power > 10:
-            return "Laden"
-        if power < -10:
-            return "Entladen"
-        return "Standby"
+        """Return a user-facing charge/discharge/storage state."""
+        storage_state = (
+            STORAGE_PHASE_STATES.get(self._storage_phase)
+            if self.storage_mode_enabled
+            else None
+        )
+        return operation_status_from_power(
+            self.battery_power,
+            mode_error=self._mode_enforcement_error,
+            storage_state=storage_state,
+        )
 
     @property
     def battery_power(self) -> float | None:
         """Return normalized battery power (positive charging)."""
-        value = self.data.get("bat_power") if self.data else None
-        if value is None and self.data:
-            value = self.data.get("ongrid_power")
-            if value is not None:
-                try:
-                    return -float(value)
-                except (TypeError, ValueError):
-                    return None
-        try:
-            return float(value) if value is not None else None
-        except (TypeError, ValueError):
-            return None
+        return normalized_battery_power(self.data)
 
     @property
     def battery_available_capacity(self) -> float | None:
         """Return remaining charge capacity in Wh."""
         soc = self.data.get("bat_soc") if self.data else None
         rated = self.battery_data.get("rated_capacity")
-        try:
-            return round((100 - float(soc)) * float(rated) / 100, 1)
-        except (TypeError, ValueError):
-            return None
-
-    @staticmethod
-    def _time_weighted_average(
-        samples: deque[tuple[datetime, float]],
-        now: datetime,
-        window: timedelta,
-    ) -> float | None:
-        """Return a time-weighted average once the full window is covered."""
-        if not samples:
-            return None
-        start = now - window
-        if samples[0][0] > start:
-            return None
-
-        points = list(samples)
-        current_value = points[0][1]
-        cursor = start
-        total = 0.0
-        for timestamp, value in points[1:]:
-            if timestamp <= start:
-                current_value = value
-                continue
-            if timestamp > now:
-                break
-            total += current_value * (timestamp - cursor).total_seconds()
-            cursor = timestamp
-            current_value = value
-        total += current_value * (now - cursor).total_seconds()
-        seconds = window.total_seconds()
-        return total / seconds if seconds > 0 else None
-
-    def _append_sample(
-        self,
-        samples: deque[tuple[datetime, float]],
-        now: datetime,
-        value: float,
-        keep: timedelta,
-    ) -> None:
-        """Append a sample while retaining one value before the window."""
-        samples.append((now, value))
-        cutoff = now - keep
-        while len(samples) >= 2 and samples[1][0] <= cutoff:
-            samples.popleft()
+        return available_battery_capacity(soc, rated)
 
     def _update_solar_measurement(self, now: datetime) -> None:
         """Read and evaluate the configured Home Assistant solar sensor."""
         if not self.solar_power_entity:
+            self._solar_sensor_problem = None
             self.solar_power = None
             self.solar_surplus = False
             self._solar_samples.clear()
@@ -484,6 +572,9 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
 
         state = self.hass.states.get(self.solar_power_entity)
         if state is None or state.state in ("unknown", "unavailable"):
+            self._solar_sensor_problem = (
+                f"Sensor {self.solar_power_entity} is unavailable"
+            )
             self.solar_power = None
             self.solar_surplus = False
             self._solar_samples.clear()
@@ -491,6 +582,9 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             value = float(state.state)
         except (TypeError, ValueError):
+            self._solar_sensor_problem = (
+                f"Sensor {self.solar_power_entity} has no numeric state"
+            )
             self.solar_power = None
             self.solar_surplus = False
             self._solar_samples.clear()
@@ -500,11 +594,15 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         if unit == "kw":
             value *= 1000
         elif unit != "w":
+            self._solar_sensor_problem = (
+                f"Unit '{unit}' is not supported"
+            )
             self.solar_power = None
             self.solar_surplus = False
             self._solar_samples.clear()
             return
 
+        self._solar_sensor_problem = None
         self.solar_power = round(value, 1)
         keep = timedelta(
             minutes=max(
@@ -512,9 +610,9 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 self.solar_surplus_off_minutes,
             )
         )
-        self._append_sample(self._solar_samples, now, value, keep)
+        append_sample(self._solar_samples, now, value, keep)
         if not self.solar_surplus:
-            average = self._time_weighted_average(
+            average = time_weighted_average(
                 self._solar_samples,
                 now,
                 timedelta(minutes=self.solar_surplus_on_minutes),
@@ -522,7 +620,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             if average is not None and average >= self.solar_surplus_on_w:
                 self.solar_surplus = True
         else:
-            average = self._time_weighted_average(
+            average = time_weighted_average(
                 self._solar_samples,
                 now,
                 timedelta(minutes=self.solar_surplus_off_minutes),
@@ -545,7 +643,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             return None
         if invert:
             value = -value
-        self._append_sample(
+        append_sample(
             self._battery_power_samples,
             now,
             value,
@@ -577,7 +675,11 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 )
             
             # Get battery details only at the slower battery interval.
-            if self._last_battery_update is None or (now - self._last_battery_update) >= self._battery_update_interval:
+            if (
+                self._last_battery_update is None
+                or (now - self._last_battery_update)
+                >= self._battery_update_interval
+            ):
                 try:
                     self.battery_data = await self.client.get_battery_status()
                     for field in ("bat_voltage", "bat_current"):
@@ -595,12 +697,12 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                         self.device_data = await self.client.get_device_info()
                         self.device_data.setdefault(
                             "ip",
-                            _normalize_ipv4(
+                                normalize_ipv4(
                                 self.entry.data.get(CONF_IP_ADDRESS)
                             ),
                         )
                         if "ip" in self.device_data:
-                            self.device_data["ip"] = _normalize_ipv4(
+                            self.device_data["ip"] = normalize_ipv4(
                                 self.device_data["ip"]
                             )
                     except Exception as device_err:
@@ -609,7 +711,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                         self.wifi_data = await self.client.get_wifi_status()
                         for field in ("sta_ip", "sta_gate", "sta_mask", "sta_dns"):
                             if field in self.wifi_data:
-                                self.wifi_data[field] = _normalize_ipv4(
+                                self.wifi_data[field] = normalize_ipv4(
                                     self.wifi_data[field]
                                 )
                     except Exception as wifi_err:
@@ -633,6 +735,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             if update_mode_data:
                 try:
                     self.mode_data = await self.client.get_energy_system_mode()
+                    self._last_mode_feedback_at = datetime.now()
                     self._last_mode_update = now
                 # Add mode to main data for easy access
                     if "mode" in self.mode_data:
@@ -641,9 +744,15 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 # Add CT meter data to mode_data (ES.GetMode includes it)
                 # Apply scaling for energy values (*0.1 as per API documentation)
                     if "input_energy" in self.mode_data:
-                        self.mode_data["input_energy"] = round(self.mode_data.get("input_energy", 0) * 0.1, 1)
+                        self.mode_data["input_energy"] = round(
+                            self.mode_data.get("input_energy", 0) * 0.1,
+                            1,
+                        )
                     if "output_energy" in self.mode_data:
-                        self.mode_data["output_energy"] = round(self.mode_data.get("output_energy", 0) * 0.1, 1)
+                        self.mode_data["output_energy"] = round(
+                            self.mode_data.get("output_energy", 0) * 0.1,
+                            1,
+                        )
                 except Exception as mode_err:
                     _LOGGER.warning("Failed to get mode data: %s", mode_err)
                     # Don't fail the entire update if mode fetch fails
@@ -656,13 +765,19 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                     if em_data:
                     # Apply scaling for EM energy values too
                         if "input_energy" in em_data:
-                            em_data["input_energy"] = round(em_data.get("input_energy", 0) * 0.1, 1)
+                            em_data["input_energy"] = round(
+                                em_data.get("input_energy", 0) * 0.1,
+                                1,
+                            )
                         if "output_energy" in em_data:
-                            em_data["output_energy"] = round(em_data.get("output_energy", 0) * 0.1, 1)
+                            em_data["output_energy"] = round(
+                                em_data.get("output_energy", 0) * 0.1,
+                                1,
+                            )
                     
                     # Merge with mode_data
-                    # For CT power data (a_power, b_power, c_power, total_power), prefer EM.GetStatus
-                    # as ES.GetMode may return zeros if CT is not in active mode
+                    # Prefer EM.GetStatus for CT power data because ES.GetMode
+                    # can return zero while CT is not in the active mode.
                         if self.mode_data:
                             ct_fields = {
                                 "ct_state",
@@ -673,12 +788,17 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                             }
                             for k, v in em_data.items():
                             # Prefer EM data for CT fields, otherwise prefer mode_data
-                                if k not in self.mode_data or (k in ct_fields and self.mode_data.get(k) == 0):
+                                if k not in self.mode_data or (
+                                    k in ct_fields
+                                    and self.mode_data.get(k) == 0
+                                ):
                                     self.mode_data[k] = v
                         else:
                             self.mode_data = em_data
                 except Exception as em_err:
-                    _LOGGER.debug("Failed to get EM status (expected if not available): %s", em_err)
+                    _LOGGER.debug(
+                        "Failed to get optional EM status: %s", em_err
+                    )
                     # EM.GetStatus is optional and may not be available on all devices
 
             # Preserve the cached mode in the fast coordinator data between the
@@ -686,8 +806,11 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             if "mode" in self.mode_data:
                 data["mode"] = self.mode_data["mode"]
 
+            self._update_standby_confirmation(data)
+            await self._async_passive_keepalive()
             await self._async_enforce_operating_mode()
             
+            self._last_successful_update = datetime.now()
             return data
         except Exception as err:
             _LOGGER.error("Failed to get device data: %s", err)
@@ -697,7 +820,6 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         """Restore the persistent mode setpoint after external changes."""
         if (
             not self._mode_enforcement_ready
-            or self.automatic_storage_enabled
             or self.storage_mode_enabled
             or self.desired_operating_mode == MODE_STORAGE
         ):
@@ -716,44 +838,33 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             return
         self._last_mode_enforcement_check = now
 
-        expected_mode = (
-            MODE_PASSIVE
-            if self.desired_operating_mode in (MODE_STANDBY, MODE_MANUAL)
-            else self.desired_operating_mode
-        )
-
-        if self.desired_operating_mode == MODE_STANDBY and actual_mode == MODE_PASSIVE:
-            try:
-                grid_power = float(self.data.get("ongrid_power"))
-            except (TypeError, ValueError):
-                grid_power = None
-            if grid_power is not None and abs(grid_power) <= 30:
-                self._standby_zero_samples += 1
-                if self._standby_zero_samples < 3:
-                    return
-            else:
-                self._standby_zero_samples = 0
-        elif actual_mode != expected_mode:
+        expected_mode = expected_physical_mode(self.desired_operating_mode)
+        if actual_mode != expected_mode:
             self._standby_zero_samples = 0
 
-        mode_confirmed = actual_mode == expected_mode
-        standby_confirmed = (
-            self.desired_operating_mode != MODE_STANDBY
-            or self._standby_zero_samples >= 3
+        feedback_confirmed = mode_feedback_confirmed(
+            self.desired_operating_mode,
+            actual_mode,
+            self._standby_zero_samples,
         )
-        if mode_confirmed and standby_confirmed:
+        feedback_is_newer_than_restore = (
+            self._mode_confirmation_required_after is None
+            or (
+                self._last_mode_feedback_at is not None
+                and self._last_mode_feedback_at
+                > self._mode_confirmation_required_after
+            )
+        )
+        if feedback_confirmed and feedback_is_newer_than_restore:
+            self._active_mode_dropout = None
             self._mode_enforcement_failures = 0
             self._mode_enforcement_error = False
             self._mode_enforcement_next_attempt = None
-            if (
-                self.desired_operating_mode in (MODE_STANDBY, MODE_MANUAL)
-                and self._passive_keepalive_due is not None
-                and now >= self._passive_keepalive_due
-            ):
-                try:
-                    await self.async_apply_desired_operating_mode()
-                except Exception as err:
-                    _LOGGER.warning("Passive keepalive failed: %s", err)
+            self._mode_confirmation_required_after = None
+            return
+        if feedback_confirmed:
+            # The write was confirmed immediately, but only a later regular
+            # ES.GetMode poll proves that the device retained the setpoint.
             return
 
         if (
@@ -761,34 +872,244 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             and now < self._mode_enforcement_next_attempt
         ):
             return
-        if self._mode_enforcement_failures >= 5:
-            self._mode_enforcement_error = True
-            return
 
         self._mode_enforcement_failures += 1
-        self._mode_enforcement_next_attempt = now + timedelta(seconds=30)
         attempt = self._mode_enforcement_failures
+        if attempt >= 5:
+            # Keep reporting the error but retry every 30 minutes instead of
+            # stopping permanently, so a temporary outage heals on its own.
+            self._mode_enforcement_error = True
+            self._mode_enforcement_next_attempt = now + timedelta(
+                seconds=MODE_ENFORCEMENT_RECOVERY_SECONDS
+            )
+        else:
+            self._mode_enforcement_next_attempt = now + timedelta(
+                seconds=MODE_ENFORCEMENT_RETRY_SECONDS
+            )
+        if actual_mode != expected_mode:
+            self._record_mode_dropout(
+                now, f"Mode {actual_mode} instead of {expected_mode}"
+            )
+        else:
+            self._record_mode_dropout(now, "Standby power is outside tolerance")
         _LOGGER.warning(
             "Operating mode differs from setpoint (actual=%s, desired=%s); "
-            "restore attempt %d/5",
+            "restore attempt %d",
             actual_mode,
             self.desired_operating_mode,
             attempt,
         )
         try:
+            if self.desired_operating_mode == MODE_STANDBY:
+                self._standby_zero_samples = 0
             await self.async_apply_desired_operating_mode()
         except Exception as err:
             _LOGGER.warning(
-                "Operating-mode restore attempt %d/5 failed: %s", attempt, err
+                "Operating-mode restore attempt %d failed: %s", attempt, err
             )
-            if attempt >= 5:
-                self._mode_enforcement_error = True
+            if self._mode_enforcement_error:
                 self.async_update_listeners()
             return
 
-        self._mode_enforcement_failures = 0
-        self._mode_enforcement_error = False
-        self._mode_enforcement_next_attempt = None
+        # Do not clear the incident or attempt counter based on the immediate
+        # response to the write. A later independent polling cycle must prove
+        # that the device retained the requested mode.
+        self._mode_confirmation_required_after = datetime.now()
+
+    def _update_standby_confirmation(self, data: dict[str, Any]) -> None:
+        """Track three consecutive fast samples confirming neutral Standby."""
+        if (
+            not self._mode_enforcement_ready
+            or self.storage_mode_enabled
+            or self.desired_operating_mode != MODE_STANDBY
+            or self.mode_data.get("mode") != MODE_PASSIVE
+        ):
+            self._standby_zero_samples = 0
+            return
+        try:
+            grid_power = float(data.get("ongrid_power"))
+        except (TypeError, ValueError):
+            self._standby_zero_samples = 0
+            return
+        if abs(grid_power) <= 30:
+            self._standby_zero_samples = min(
+                3, self._standby_zero_samples + 1
+            )
+        else:
+            self._standby_zero_samples = 0
+
+    async def _async_passive_keepalive(self) -> None:
+        """Renew persistent Standby/Manual before the Passive countdown ends.
+
+        Checked on every fast update cycle because the two-minute enforcement
+        interval cannot guarantee a renewal within the device countdown.
+        """
+        if (
+            not self._mode_enforcement_ready
+            or self.automatic_storage_enabled
+            or self.storage_mode_enabled
+            or self.desired_operating_mode not in (MODE_STANDBY, MODE_MANUAL)
+            or self._passive_keepalive_due is None
+        ):
+            return
+        now = datetime.now()
+        if now < self._passive_keepalive_due:
+            return
+        try:
+            await self.async_apply_desired_operating_mode()
+        except Exception as err:
+            self._passive_keepalive_due = now + timedelta(seconds=60)
+            _LOGGER.warning("Passive keepalive failed: %s", err)
+
+    def _record_mode_dropout(self, now: datetime, reason: str) -> None:
+        """Remember one event per continuous setpoint deviation."""
+        if not is_new_dropout(self._active_mode_dropout):
+            return
+        self._active_mode_dropout = reason
+        self._mode_dropouts.append((now, reason))
+        self._diagnostics_store.async_delay_save(self._diagnostics_data, 10)
+
+    def _mode_dropouts_last_24h(
+        self, now: datetime
+    ) -> list[tuple[datetime, str]]:
+        """Return the deviations recorded during the last 24 hours."""
+        cutoff = now - timedelta(hours=24)
+        return [item for item in self._mode_dropouts if item[0] >= cutoff]
+
+    def health_report(self) -> dict[str, Any]:
+        """Run the internal self-tests and return status plus details."""
+        now = datetime.now()
+        checks: dict[str, dict[str, str]] = {}
+
+        def add(name: str, status: str, detail: str) -> None:
+            checks[name] = {"status": status, "detail": detail}
+
+        # Connectivity: the device must have answered recently.
+        interval = (
+            self.update_interval.total_seconds() if self.update_interval else 60
+        )
+        if self._last_successful_update is None:
+            if self.last_update_success:
+                add("device_connection", "ok", "First update is running")
+            else:
+                add("device_connection", "error", "Device is not responding")
+        else:
+            age = (now - self._last_successful_update).total_seconds()
+            if not self.last_update_success or age > max(3 * interval, 60):
+                add(
+                    "device_connection",
+                    "error",
+                    f"Last response {int(age)} seconds ago",
+                )
+            else:
+                add(
+                    "device_connection",
+                    "ok",
+                    f"Last response {int(age)} seconds ago",
+                )
+
+        # Operating-mode supervision.
+        if self._mode_enforcement_error:
+            add(
+                "operating_mode",
+                "error",
+                "The requested mode could not be restored repeatedly",
+            )
+        elif self._mode_enforcement_failures > 0:
+            add(
+                "operating_mode",
+                "warning",
+                "Restore is running "
+                f"(attempt {self._mode_enforcement_failures})",
+            )
+        else:
+            add("operating_mode", "ok", "Requested mode is active")
+
+        # Passive renewal for persistent Standby/Manual.
+        if (
+            self.desired_operating_mode in (MODE_STANDBY, MODE_MANUAL)
+            and not self.storage_mode_enabled
+            and not self.automatic_storage_enabled
+            and self._last_passive_renewal is not None
+        ):
+            renewal_age = (now - self._last_passive_renewal).total_seconds()
+            if renewal_age > PASSIVE_CD_TIME_SECONDS:
+                add(
+                    "passive_renewal",
+                    "error",
+                    f"Last renewal {int(renewal_age)} seconds ago; "
+                    "Passive mode may have expired",
+                )
+            elif renewal_age > PASSIVE_KEEPALIVE_SECONDS + 120:
+                add(
+                    "passive_renewal",
+                    "warning",
+                    f"Renewal is overdue ({int(renewal_age)} seconds)",
+                )
+            else:
+                add(
+                    "passive_renewal",
+                    "ok",
+                    f"Last renewal {int(renewal_age)} seconds ago",
+                )
+
+        # Mode deviations within the last 24 hours.
+        dropouts = self._mode_dropouts_last_24h(now)
+        if dropouts:
+            last_time, last_reason = dropouts[-1]
+            detail = (
+                f"{len(dropouts)} incident(s), latest at "
+                f"{last_time.strftime('%H:%M')}: {last_reason}"
+            )
+            add(
+                "mode_dropouts_24h",
+                "warning" if len(dropouts) >= 3 else "ok",
+                detail,
+            )
+        else:
+            add("mode_dropouts_24h", "ok", "No incidents")
+
+        # Solar sensor used by the automatic winter controller.
+        if self.solar_power_entity:
+            if self._solar_sensor_problem:
+                add("solar_sensor", "warning", self._solar_sensor_problem)
+            else:
+                add(
+                    "solar_sensor",
+                    "ok",
+                    f"{self.solar_power_entity} provides data",
+                )
+        elif self.automatic_storage_enabled:
+            add(
+                "solar_sensor",
+                "warning",
+                "Automatic winter operation has no configured solar sensor",
+            )
+
+        # Day tracking of the automatic winter controller.
+        if self.automatic_storage_enabled:
+            if self._last_invalid_tracking_day:
+                day, reason = self._last_invalid_tracking_day
+                add(
+                    "day_tracking",
+                    "warning",
+                    f"Day {day} was not counted: {reason}",
+                )
+            else:
+                add(
+                    "day_tracking",
+                    "ok",
+                    "Observation days are complete",
+                )
+
+        statuses = [check["status"] for check in checks.values()]
+        if "error" in statuses:
+            status = "error"
+        elif "warning" in statuses:
+            status = "warning"
+        else:
+            status = "ok"
+        return {"status": status, "checks": checks}
 
     async def async_shutdown(self) -> None:
         """Shutdown the coordinator."""
@@ -804,7 +1125,9 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         # Local test: request a neutral 0 W target with a firmware-compatible
         # countdown; the persistent UI modes refresh it before expiry.
         if mode == MODE_PASSIVE:
-            result = await self.client.set_passive_mode(power=0, cd_time=300)
+            result = await self.client.set_passive_mode(
+                power=0, cd_time=PASSIVE_CD_TIME_SECONDS
+            )
         else:
             result = await self.client.set_mode(mode)
         if result.get("set_result") is False:
@@ -842,7 +1165,8 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 self.data["mode"] = confirmed_mode
                 self.async_update_listeners()
             raise ValueError(
-                f"Device did not confirm operating mode {mode}; reported {confirmed_mode}"
+                "Device did not confirm operating mode "
+                f"{mode}; reported {confirmed_mode}"
             )
 
         self.mode_data.update(confirmed_mode_data)
@@ -853,6 +1177,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         """Enable storage/winter mode and evaluate its first action."""
         self.storage_mode_enabled = True
         self._storage_phase = None
+        self._reset_mode_enforcement()
         await self._storage.async_save({"enabled": True})
         soc = self.data.get("bat_soc") if self.data else None
         await self._async_update_storage_mode(
@@ -867,6 +1192,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self._solar_check_started = None
         self._solar_check_cooldown_until = None
         self._storage_command_due = None
+        self._reset_mode_enforcement()
         await self._storage.async_save({"enabled": False})
 
     async def async_start_automatic_storage_controller(self) -> None:
@@ -898,6 +1224,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self._solar_check_started = None
         self._solar_check_cooldown_until = None
         self._storage_command_due = None
+        self._reset_mode_enforcement()
         self._reset_day_tracking(dt_util.now() if enabled else None)
         await self._storage.async_save({"enabled": False})
         await self._automatic_storage.async_save(self._automatic_storage_data())
@@ -934,13 +1261,13 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             self._automatic_controller_state == "storage"
             and self._tracking_had_solar_charge
             and self._tracking_min_soc is not None
-            and self._tracking_min_soc <= 95
-            and soc_value >= 99
+            and self._tracking_min_soc <= STORAGE_FULL_CHARGE_ARM_SOC
+            and soc_value >= STORAGE_FULL_CHARGE_SOC
         ):
             self._tracking_full_charge_event = True
         if (
             self._automatic_controller_state == "storage"
-            and self._full_soc_days >= 1
+            and self._full_soc_days >= STORAGE_EXIT_FULL_CHARGE_DAYS - 1
             and self._tracking_full_charge_event
         ):
             await self._async_exit_automatic_storage()
@@ -957,6 +1284,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self._solar_check_started = None
         self._solar_check_cooldown_until = None
         self._storage_command_due = None
+        self._reset_mode_enforcement()
         self._reset_day_tracking(dt_util.now())
         await self._storage.async_save({"enabled": False})
         await self.set_mode(MODE_AUTO)
@@ -974,21 +1302,34 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
 
         consecutive_day = new_day == self._tracking_day + timedelta(days=1)
         observed_for = self._tracking_last_seen - self._tracking_first_seen
-        valid_day = consecutive_day and observed_for >= timedelta(hours=20)
+        valid_day = consecutive_day and observed_for >= timedelta(
+            hours=STORAGE_VALID_DAY_HOURS
+        )
         if not valid_day:
+            reason = (
+                "gap between observation days"
+                if not consecutive_day
+                else f"observed for only {int(observed_for.total_seconds() // 3600)} h"
+            )
+            self._last_invalid_tracking_day = (
+                self._tracking_day.isoformat(),
+                reason,
+            )
             self._low_soc_days = 0
             self._full_soc_days = 0
             return
+        self._last_invalid_tracking_day = None
 
         if self._automatic_controller_state == "observing":
-            if self._tracking_max_soc < 50:
+            if self._tracking_max_soc < STORAGE_TARGET_SOC:
                 self._low_soc_days += 1
             else:
                 self._low_soc_days = 0
-            if self._low_soc_days >= 5:
+            if self._low_soc_days >= STORAGE_OBSERVATION_DAYS:
                 self._automatic_controller_state = "storage"
                 self.storage_mode_enabled = True
                 self._storage_phase = None
+                self._reset_mode_enforcement()
                 self._full_soc_days = 0
                 await self._storage.async_save({"enabled": True})
         else:
@@ -996,24 +1337,20 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 self._full_soc_days += 1
             else:
                 self._full_soc_days = 0
-            if self._full_soc_days >= 2:
+            if self._full_soc_days >= STORAGE_EXIT_FULL_CHARGE_DAYS:
                 await self._async_exit_automatic_storage()
 
         await self._automatic_storage.async_save(self._automatic_storage_data())
 
     async def _async_apply_storage_phase(self, phase: str) -> None:
         """Apply and confirm the physical mode required by a storage phase."""
-        passive_power = (
-            STORAGE_CHARGE_POWER if phase == "charging" else 0
-        )
-        expected_mode = (
-            MODE_PASSIVE
-            if phase in ("charging", "holding")
-            else MODE_AUTO
+        expected_mode, passive_power = storage_phase_command(
+            phase, STORAGE_CHARGE_POWER
         )
         if expected_mode == MODE_PASSIVE:
+            assert passive_power is not None
             result = await self.client.set_passive_mode(
-                power=passive_power, cd_time=300
+                power=passive_power, cd_time=PASSIVE_CD_TIME_SECONDS
             )
         else:
             result = await self.client.set_mode(MODE_AUTO)
@@ -1039,7 +1376,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         if self.data is not None:
             self.data["mode"] = expected_mode
         self._storage_command_due = (
-            datetime.now() + timedelta(seconds=240)
+            datetime.now() + timedelta(seconds=PASSIVE_KEEPALIVE_SECONDS)
             if expected_mode == MODE_PASSIVE
             else None
         )
@@ -1049,155 +1386,195 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         soc: Any,
         now: datetime | None = None,
     ) -> None:
-        """Keep the battery near 50 percent and use verified solar surplus."""
-        if soc is None:
-            return
-
+        """Keep the battery near 50 percent and use verified solar output."""
+        soc_value: float | None = None
         try:
-            soc_value = float(soc)
+            if soc is not None:
+                soc_value = float(soc)
         except (TypeError, ValueError):
-            _LOGGER.warning("Storage mode received invalid SOC value: %s", soc)
+            _LOGGER.debug("Storage mode received invalid SOC value: %s", soc)
+
+        # Without a first valid SOC there is no safe phase to choose. Once a
+        # phase is active, however, its command must still be supervised and
+        # renewed while SOC feedback is temporarily unavailable.
+        if soc_value is None and self._storage_phase is None:
             return
 
         now = now or datetime.now()
-        battery_average = self._time_weighted_average(
-            self._battery_power_samples, now, timedelta(minutes=2)
+        battery_average = time_weighted_average(
+            self._battery_power_samples,
+            now,
+            timedelta(seconds=BATTERY_POWER_AVERAGE_SECONDS),
         )
-        next_phase = self._storage_phase
 
         # Manually selected Storage keeps the original self-contained
         # 45/50/55 hysteresis. Solar-assisted states belong exclusively to the
         # automatic winter controller.
-        if not self.automatic_storage_enabled:
-            if self._storage_phase == "charging":
-                if soc_value >= STORAGE_TARGET_SOC:
-                    next_phase = "holding"
-            elif self._storage_phase == "auto":
-                if soc_value <= STORAGE_TARGET_SOC:
-                    next_phase = "holding"
-            elif soc_value <= STORAGE_CHARGE_START_SOC:
-                next_phase = "charging"
-            elif soc_value >= STORAGE_AUTO_START_SOC:
-                next_phase = "auto"
-            else:
-                next_phase = "holding"
+        if soc_value is None:
+            next_phase = self._storage_phase
+            assert next_phase is not None
+            solar_check_failed = False
+        elif not self.automatic_storage_enabled:
+            next_phase = manual_storage_next_phase(
+                self._storage_phase,
+                soc_value,
+                STORAGE_CHARGE_START_SOC,
+                STORAGE_TARGET_SOC,
+                STORAGE_AUTO_START_SOC,
+            )
         else:
-            if self._storage_phase == "charging":
-                if soc_value >= STORAGE_TARGET_SOC:
-                    next_phase = "holding"
-            elif self._storage_phase == "solar_check":
-                elapsed = (
-                    now - self._solar_check_started
-                    if self._solar_check_started
-                    else timedelta()
-                )
-                if soc_value < STORAGE_TARGET_SOC:
-                    next_phase = "holding"
-                elif (
-                    elapsed >= timedelta(minutes=2)
-                    and battery_average is not None
-                    and battery_average > BATTERY_POWER_THRESHOLD_W
-                ):
-                    self._tracking_had_solar_charge = True
-                    next_phase = "solar_charging"
-                elif elapsed >= timedelta(seconds=SOLAR_CHECK_MAX_SECONDS):
-                    self._solar_check_cooldown_until = now + timedelta(
-                        seconds=SOLAR_CHECK_COOLDOWN_SECONDS
-                    )
-                    next_phase = (
-                        "auto"
-                        if soc_value > STORAGE_TARGET_SOC
-                        else "holding"
-                    )
-            elif self._storage_phase == "solar_charging":
+            elapsed_seconds = (
+                (now - self._solar_check_started).total_seconds()
+                if self._solar_check_started
+                else 0
+            )
+            cooldown_active = (
+                self._solar_check_cooldown_until is not None
+                and now < self._solar_check_cooldown_until
+            )
+            next_phase = automatic_storage_next_phase(
+                self._storage_phase,
+                soc_value,
+                solar_surplus=self.solar_surplus,
+                cooldown_active=cooldown_active,
+                solar_check_elapsed_seconds=elapsed_seconds,
+                battery_average=battery_average,
+                charge_start_soc=STORAGE_CHARGE_START_SOC,
+                target_soc=STORAGE_TARGET_SOC,
+                charge_threshold_w=BATTERY_POWER_THRESHOLD_W,
+                charge_exit_w=SOLAR_CHARGING_EXIT_W,
+                charge_confirmation_seconds=(
+                    SOLAR_CHARGE_CONFIRMATION_SECONDS
+                ),
+                solar_check_max_seconds=SOLAR_CHECK_MAX_SECONDS,
+            )
+            if next_phase == "solar_charging":
                 self._tracking_had_solar_charge = True
-                if soc_value <= STORAGE_TARGET_SOC:
-                    next_phase = "holding"
-                elif (
-                    battery_average is not None
-                    and battery_average < -BATTERY_POWER_THRESHOLD_W
-                ):
-                    next_phase = "auto"
-            elif self._storage_phase == "auto":
-                if soc_value <= STORAGE_TARGET_SOC:
-                    next_phase = "holding"
-                elif (
-                    battery_average is not None
-                    and battery_average > BATTERY_POWER_THRESHOLD_W
-                ):
-                    self._tracking_had_solar_charge = True
-                    next_phase = "solar_charging"
-            elif soc_value <= STORAGE_CHARGE_START_SOC:
-                next_phase = "charging"
-            elif (
-                self._storage_phase == "holding"
-                and self.solar_surplus
-                and (
-                    self._solar_check_cooldown_until is None
-                    or now >= self._solar_check_cooldown_until
-                )
-            ):
-                next_phase = "solar_check"
-            else:
-                next_phase = "holding"
+            solar_check_failed = (
+                self._storage_phase == "solar_check"
+                and next_phase != "solar_check"
+                and next_phase != "solar_charging"
+                and elapsed_seconds >= SOLAR_CHECK_MAX_SECONDS
+            )
+        if not self.automatic_storage_enabled:
+            solar_check_failed = False
 
-        phase_changed = next_phase != self._storage_phase
-        if phase_changed and next_phase == "solar_check":
-            self._solar_check_started = now
-        elif phase_changed and self._storage_phase == "solar_check":
-            self._solar_check_started = None
-
-        expected_mode = (
-            MODE_PASSIVE
-            if next_phase in ("charging", "holding")
-            else MODE_AUTO
+        previous_phase = self._storage_phase
+        phase_changed = next_phase != previous_phase
+        next_command = storage_phase_command(
+            next_phase, STORAGE_CHARGE_POWER
         )
-        mode_mismatch = self.mode_data.get("mode") not in (
-            None,
-            expected_mode,
+        expected_mode = next_command[0]
+        planned_command_change = (
+            phase_changed
+            and storage_phase_changes_command(
+                previous_phase, next_phase, STORAGE_CHARGE_POWER
+            )
         )
+        actual_mode = self.mode_data.get("mode")
+        mode_mismatch = actual_mode not in (None, expected_mode)
         keepalive_due = (
             self._storage_command_due is not None
             and now >= self._storage_command_due
         )
-        if not phase_changed and not mode_mismatch and not keepalive_due:
+
+        feedback_is_newer_than_restore = (
+            self._mode_confirmation_required_after is not None
+            and self._last_mode_feedback_at is not None
+            and self._last_mode_feedback_at
+            > self._mode_confirmation_required_after
+        )
+        confirmed_pending_transition = (
+            planned_command_change
+            and actual_mode == expected_mode
+            and feedback_is_newer_than_restore
+        )
+        if actual_mode == expected_mode and feedback_is_newer_than_restore:
+            self._active_mode_dropout = None
+            self._mode_enforcement_failures = 0
+            self._mode_enforcement_error = False
+            self._mode_enforcement_next_attempt = None
+            self._mode_confirmation_required_after = None
+            self.async_update_listeners()
+
+        # A planned change to a different physical command starts with a fresh
+        # retry budget. Logical transitions that keep the same command (for
+        # example solar_check -> solar_charging) do not touch supervision.
+        if (
+            planned_command_change
+            and self._pending_storage_phase != next_phase
+        ):
+            self._reset_mode_enforcement()
+            self._pending_storage_phase = next_phase
+        elif not phase_changed and self._pending_storage_phase is not None:
+            # Conditions changed before a failed transition was completed.
+            self._reset_mode_enforcement()
+
+        needs_command = storage_command_required(
+            planned_command_change=planned_command_change,
+            actual_mode=actual_mode,
+            expected_mode=expected_mode,
+            keepalive_due=keepalive_due,
+            confirmed_pending_transition=confirmed_pending_transition,
+        )
+        if not needs_command and not phase_changed:
             return
 
-        if self._mode_enforcement_failures >= 5:
-            self._mode_enforcement_error = True
-            return
-        if (
+        if needs_command and (
             self._mode_enforcement_next_attempt is not None
             and now < self._mode_enforcement_next_attempt
         ):
             return
-        try:
-            await self._async_apply_storage_phase(next_phase)
-        except Exception as err:
+
+        restore_attempt = mode_mismatch and not planned_command_change
+        if restore_attempt:
             self._mode_enforcement_failures += 1
-            self._mode_enforcement_next_attempt = now + timedelta(seconds=30)
-            if self._mode_enforcement_failures >= 5:
-                self._mode_enforcement_error = True
-            _LOGGER.warning(
-                "Storage phase %s could not be confirmed (%d/5): %s",
-                next_phase,
-                self._mode_enforcement_failures,
-                err,
+            self._schedule_mode_enforcement_retry(now)
+            self._record_mode_dropout(
+                now,
+                f"Mode {actual_mode} instead of {expected_mode} "
+                "during storage operation",
             )
-            self.async_update_listeners()
-            return
+
+        if needs_command:
+            # As with the normal persistent modes, only a later regular
+            # ES.GetMode poll proves that the device retained this command.
+            self._mode_confirmation_required_after = datetime.now()
+            try:
+                await self._async_apply_storage_phase(next_phase)
+            except Exception as err:
+                if not restore_attempt:
+                    self._mode_enforcement_failures += 1
+                    self._schedule_mode_enforcement_retry(now)
+                _LOGGER.warning(
+                    "Storage phase %s could not be confirmed (attempt %d): %s",
+                    next_phase,
+                    self._mode_enforcement_failures,
+                    err,
+                )
+                self.async_update_listeners()
+                return
 
         if phase_changed:
+            assert soc_value is not None
+            if next_phase == "solar_check":
+                self._solar_check_started = now
+            elif previous_phase == "solar_check":
+                self._solar_check_started = None
+            if solar_check_failed:
+                self._solar_check_cooldown_until = now + timedelta(
+                    seconds=SOLAR_CHECK_COOLDOWN_SECONDS
+                )
             _LOGGER.info(
                 "Storage mode changed phase from %s to %s at %.1f%% SOC",
-                self._storage_phase,
+                previous_phase,
                 next_phase,
                 soc_value,
             )
         self._storage_phase = next_phase
-        self._mode_enforcement_failures = 0
-        self._mode_enforcement_error = False
-        self._mode_enforcement_next_attempt = None
+        self._pending_storage_phase = None
+        if self.automatic_storage_enabled and phase_changed:
+            self._schedule_automatic_storage_save()
         self.async_update_listeners()
 
     async def set_manual_schedule(
@@ -1227,17 +1604,36 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             power=power,
             enable=enable,
         )
+        # Editing a schedule must not silently replace the active controller.
+        # This also preserves an automatic or manual storage phase.
+        await self._async_restore_active_operating_mode()
         await self.async_request_refresh()
 
-    async def set_passive_mode(self, power: int, cd_time: int = 0) -> None:
-        """Set passive mode.
-        
-        Args:
-            power: Target power
-            cd_time: Countdown time
-        """
-        await self.client.set_passive_mode(power=power, cd_time=cd_time)
-        await self.async_request_refresh()
+    async def _async_restore_active_operating_mode(self) -> None:
+        """Reapply the controller that currently owns the device mode."""
+        if self.automatic_storage_enabled and not self.storage_mode_enabled:
+            await self.set_mode(MODE_AUTO)
+            return
+        if self.storage_mode_enabled:
+            now = datetime.now()
+            self._storage_command_due = now
+            soc = self.data.get("bat_soc") if self.data else None
+            await self._async_update_storage_mode(soc, now)
+            return
+        if self.desired_operating_mode == MODE_STORAGE:
+            await self.async_enable_storage_mode()
+            return
+        await self.async_apply_desired_operating_mode()
+
+    async def async_set_led_state(self, enabled: bool) -> None:
+        """Set the panel LED and synchronize its optimistic HA state."""
+        result = await self.client.set_led_ctrl(enabled)
+        if result.get("set_result") is False:
+            raise ValueError(
+                f"Device rejected LED {'on' if enabled else 'off'} command"
+            )
+        self.led_state = enabled
+        self.async_update_listeners()
 
     async def clear_all_manual_schedules(self) -> dict[str, Any]:
         """Clear all manual schedules.
@@ -1246,25 +1642,6 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             Dictionary with operation results
         """
         results = await self.client.clear_all_manual_schedules()
+        await self._async_restore_active_operating_mode()
         await self.async_request_refresh()
         return results
-
-    async def refresh_battery_data(self) -> dict[str, Any]:
-        """Manually refresh battery data.
-        
-        Returns:
-            Battery data dictionary
-        """
-        self.battery_data = await self.client.get_battery_status()
-        self.async_update_listeners()
-        return self.battery_data
-
-    async def refresh_mode_data(self) -> dict[str, Any]:
-        """Manually refresh mode and CT data.
-        
-        Returns:
-            Mode data dictionary
-        """
-        self.mode_data = await self.client.get_energy_system_mode()
-        self.async_update_listeners()
-        return self.mode_data

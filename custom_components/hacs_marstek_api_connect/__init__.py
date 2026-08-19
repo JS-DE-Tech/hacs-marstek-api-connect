@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -10,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.storage import Store
 
-from .const import DOMAIN, MODE_AUTO, MODE_STORAGE
+from .const import DOMAIN, MODE_STORAGE
 from .coordinator import MarstekDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -24,17 +23,6 @@ PLATFORMS: list[Platform] = [
     Platform.NUMBER,
 ]
 
-SERVICES = (
-    "set_mode",
-    "set_manual_schedule",
-    "set_passive_mode",
-    "clear_all_schedules",
-    "set_ble_adv",
-    "set_led_ctrl",
-    "change_operating_mode",
-)
-
-
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the Marstek Venus E integration.
     
@@ -47,7 +35,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """
     # Initialize domain data
     hass.data.setdefault(DOMAIN, {})
-    
+    # Domain services must be available even when no config entry is loaded,
+    # so automations can always be edited and validated.
+    await async_setup_services(hass)
+
     return True
 
 
@@ -70,6 +61,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_load_storage_mode()
     await coordinator.async_load_automatic_storage()
     await coordinator.async_load_desired_operating_mode()
+    await coordinator.async_load_diagnostics()
     
     try:
         await coordinator.async_config_entry_first_refresh()
@@ -106,10 +98,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     initial_setup = await initial_setup_store.async_load()
     if not (initial_setup and initial_setup.get("led_initialized")):
         try:
-            led_result = await coordinator.client.set_led_ctrl(True)
-            if led_result.get("set_result") is False:
-                raise ValueError("Device rejected LED on command")
-            coordinator.led_state = True
+            await coordinator.async_set_led_state(True)
             await initial_setup_store.async_save({"led_initialized": True})
         except Exception as err:
             _LOGGER.warning(
@@ -120,9 +109,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    # Register services
-    await async_setup_services(hass)
 
     # Setup reload listener
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -143,9 +129,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         coordinator = hass.data[DOMAIN].pop(entry.entry_id)
         await coordinator.async_shutdown()
-        if not hass.data[DOMAIN]:
-            for service in SERVICES:
-                hass.services.async_remove(DOMAIN, service)
 
     return unload_ok
 

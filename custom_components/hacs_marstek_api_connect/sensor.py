@@ -6,13 +6,6 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
-    UnitOfEnergy,
-    UnitOfPower,
-    UnitOfElectricCurrent,
-    UnitOfElectricPotential,
-    UnitOfTemperature,
-)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import (
@@ -20,7 +13,7 @@ from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
 )
 
-from .const import DOMAIN, ALL_SENSORS
+from .const import ALL_SENSORS, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,9 +72,14 @@ class MarstekSensor(CoordinatorEntity, SensorEntity):
         self.sensor_id = sensor_id
         self.sensor_config = sensor_config
         
-        self._attr_name = sensor_config["name"]
+        self._attr_translation_key = sensor_config.get(
+            "translation_key", sensor_id
+        )
+        self._attr_has_entity_name = True
+        self._attr_name = None
         self._attr_icon = sensor_config.get("icon")
         self._attr_device_class = sensor_config.get("device_class")
+        self._attr_options = sensor_config.get("options")
         self._attr_native_unit_of_measurement = sensor_config.get("unit")
         
         # Set state class for energy sensors
@@ -125,14 +123,16 @@ class MarstekSensor(CoordinatorEntity, SensorEntity):
             return self.coordinator.battery_available_capacity
         if source == "derived" and self.sensor_id == "solar_power":
             return self.coordinator.solar_power
+        if source == "derived" and self.sensor_id == "self_test":
+            return self.coordinator.health_report()["status"]
         
         # Check appropriate data source based on sensor configuration
         if source == "battery" and self.coordinator.battery_data:
-            # From Bat.GetStatus (manual refresh)
+            # Data from the slower Bat.GetStatus poll.
             if attr_path in self.coordinator.battery_data:
                 return self.coordinator.battery_data[attr_path]
         elif source == "mode" and self.coordinator.mode_data:
-            # From ES.GetMode (manual refresh)
+            # Data from the slower ES.GetMode poll.
             if attr_path in self.coordinator.mode_data:
                 return self.coordinator.mode_data[attr_path]
         elif source == "wifi" and self.coordinator.wifi_data:
@@ -153,6 +153,9 @@ class MarstekSensor(CoordinatorEntity, SensorEntity):
         Returns:
             True if data is available
         """
+        if self.sensor_id == "self_test":
+            # The self-test must stay visible to report connection problems.
+            return True
         if self.sensor_id == "solar_power":
             return (
                 self.coordinator.last_update_success
@@ -162,7 +165,15 @@ class MarstekSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return source information for the configured solar sensor."""
+        """Return check details for the self-test and solar source info."""
+        if self.sensor_id == "self_test":
+            report = self.coordinator.health_report()
+            return {
+                check: f"{result['status']} - {result['detail']}"
+                for check, result in report["checks"].items()
+            }
+        if self.sensor_id == "storage_status":
+            return self.coordinator.storage_status_attributes
         if self.sensor_id != "solar_power":
             return None
         return {"source_entity": self.coordinator.solar_power_entity}

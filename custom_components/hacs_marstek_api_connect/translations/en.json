@@ -2,91 +2,92 @@
   "config": {
     "step": {
       "user": {
-        "title": "Marstek Venus E Setup",
-        "description": "Start the setup process to find and connect to your Marstek Venus E device.",
+        "title": "Set up Marstek Venus E",
+        "description": "Find your Marstek Venus E and connect it to Home Assistant.",
         "data": {
           "confirm": "Continue"
         }
       },
       "discovery": {
-        "title": "Discovering Devices",
-        "description": "Scanning your local network for Marstek devices..."
+        "title": "Discovering devices",
+        "description": "Scanning the local network for Marstek devices…"
       },
       "select_device": {
-        "title": "Select Device",
+        "title": "Select device",
         "description": "Found {device_count} device(s). Select a device, retry discovery, or enter an IP address manually.",
         "data": {
           "ip_address": "Device",
-          "port": "UDP Port (default: 30000)",
-          "ble_mac": "Bluetooth MAC Address (optional)"
+          "port": "UDP port (default: 30000)",
+          "ble_mac": "Bluetooth MAC address (optional)"
         }
       },
       "manual_ip": {
-        "title": "Enter Device IP Address",
-        "description": "No devices were discovered automatically. Please enter the IP address of your Marstek Venus E device manually.",
+        "title": "Enter device IP address",
+        "description": "No device was discovered automatically. Enter the IP address of your Marstek Venus E manually.",
         "data": {
-          "ip_address": "IP Address",
-          "port": "UDP Port",
-          "ble_mac": "Bluetooth MAC Address (optional)"
+          "ip_address": "IP address",
+          "port": "UDP port",
+          "ble_mac": "Bluetooth MAC address (optional)"
         }
       },
       "clear_schedules": {
         "title": "Manage schedules with Home Assistant",
-        "description": "Optionally let Home Assistant manage the manual charge and discharge schedules. Enable this only if all ten schedules currently stored on the device should be disabled.",
+        "description": "Home Assistant can optionally manage the manual charging and discharging schedules. Enable this only if all ten schedule slots (0–9) stored on the device should be disabled.",
         "data": {
           "clear_schedules": "Manage schedules with Home Assistant – delete all schedules stored on the device"
         },
         "data_description": {
-          "clear_schedules": "Disables all ten existing manual schedule slots. Leave unchecked to keep the schedules unchanged."
+          "clear_schedules": "Disables all ten existing manual schedule slots. Leave unchecked to keep the stored schedules unchanged."
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to device. Check IP address and port.",
-      "no_device_selected": "Please select a device or enter an IP address.",
-      "invalid_ip": "Invalid IP address format."
+      "cannot_connect": "Failed to connect to the device. Check the IP address and port.",
+      "no_device_selected": "Select a device or enter an IP address.",
+      "invalid_ip": "The IP address is invalid.",
+      "clear_failed": "The schedules could not be cleared. The device may be unavailable."
     },
     "abort": {
-      "already_configured": "Device is already configured.",
-      "schedule_failed": "Failed to save schedule configuration.",
-      "cannot_retrieve_schedules": "Unable to retrieve current schedules from device."
+      "already_configured": "This device is already configured.",
+      "schedule_failed": "The schedule could not be saved.",
+      "cannot_retrieve_schedules": "The existing schedules could not be retrieved."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Marstek Venus E Configuration",
-        "description": "Configure your Marstek Venus E device settings",
+        "title": "Configure Marstek Venus E",
+        "description": "Configure your Marstek Venus E.",
         "menu_options": {
-          "configure_manual_mode": "Configure Manual Mode Schedule",
-          "configure_update_interval": "Configure Update Interval",
+          "configure_manual_mode": "Configure manual schedule",
+          "configure_update_interval": "Configure update intervals",
           "configure_operating_modes": "Select available operating modes",
-          "configure_solar_surplus": "Configure solar surplus"
+          "configure_solar_surplus": "Configure solar output"
         }
       },
       "configure_manual_mode": {
-        "title": "Configure Manual Mode Schedule",
-        "description": "Set up charging/discharging schedules for Manual mode. {power_info}",
+        "title": "Configure manual schedule",
+        "description": "Set up a charging or discharging schedule. The device API cannot read schedules back.",
         "data": {
-          "time_slot": "Time Slot (0-9)",
-          "start_time": "Start Time",
-          "end_time": "End Time",
-          "days": "Active Days",
+          "time_slot": "Time slot (0–9)",
+          "start_time": "Start time",
+          "end_time": "End time",
+          "days": "Active days",
           "power": "Power (W)",
-          "enable": "Enable this schedule"
+          "enable": "Enable schedule"
         },
         "data_description": {
-          "time_slot": "Select which time slot to configure (you can create up to 10 different schedules)",
-          "start_time": "When this schedule should start each day",
-          "end_time": "When this schedule should end each day",
-          "days": "Select which days of the week this schedule is active",
-          "power": "Battery power: negative values charge (e.g., -1000W), positive values discharge (e.g., 1000W)",
-          "enable": "Check to activate this schedule"
+          "time_slot": "Select one of the ten available schedule slots.",
+          "start_time": "Time at which the schedule starts.",
+          "end_time": "Time at which the schedule ends.",
+          "days": "Days on which the schedule is active.",
+          "power": "Negative values charge the battery; positive values discharge it.",
+          "enable": "Enables this schedule slot on the device."
         }
       },
       "configure_update_interval": {
-        "title": "Configure Update Interval",
-        "description": "Configure separate polling intervals for live power values and operating-mode/CT data.",
+        "title": "Configure update intervals",
+        "description": "Set separate polling intervals for power values and operating-mode/CT data.",
         "data": {
           "fast_scan_interval": "Energy data and power",
           "mode_scan_interval": "Operating mode and CT data"
@@ -98,7 +99,7 @@
       },
       "configure_operating_modes": {
         "title": "Select available operating modes",
-        "description": "Choose the modes shown by the operating-mode entity. Storage mode keeps the battery around 50%: charge at 500 W from 45%, hold at 50%, and use Auto from 55% until it returns to 50%.",
+        "description": "Choose the modes shown by the operating-mode entity. Storage mode keeps the battery around 50% using hysteresis.",
         "data": {
           "enabled_modes": "Displayed operating modes"
         },
@@ -107,14 +108,14 @@
         }
       },
       "configure_solar_surplus": {
-        "title": "Configure solar surplus",
-        "description": "Select the Home Assistant power sensor used by automatic storage and configure time-weighted surplus thresholds.",
+        "title": "Configure solar output",
+        "description": "Select the Home Assistant power sensor used by automatic winter operation and configure its time-weighted thresholds.",
         "data": {
           "solar_power_entity": "Solar power entity",
-          "solar_surplus_on_w": "Solar surplus above",
-          "solar_surplus_off_w": "Solar surplus ends below",
-          "solar_surplus_on_minutes": "Turn-on average period",
-          "solar_surplus_off_minutes": "Turn-off average period"
+          "solar_surplus_on_w": "Solar output active above",
+          "solar_surplus_off_w": "Solar output ends below",
+          "solar_surplus_on_minutes": "Turn-on period",
+          "solar_surplus_off_minutes": "Turn-off period"
         }
       }
     },
@@ -123,35 +124,229 @@
       "solar_on_must_exceed_off": "The turn-on threshold must be higher than the turn-off threshold."
     }
   },
+  "selector": {
+    "device_selection": {
+      "options": {
+        "retry_discovery": "Retry device discovery",
+        "manual": "Enter IP address manually"
+      }
+    },
+    "operating_mode_options": {
+      "options": {
+        "Auto": "Auto (self-consumption)",
+        "AI": "AI mode",
+        "Standby": "Standby (0 W)",
+        "Manual": "Manual power",
+        "Schedule": "Schedule",
+        "Storage": "Storage / winter"
+      }
+    },
+    "weekdays": {
+      "options": {
+        "monday": "Monday",
+        "tuesday": "Tuesday",
+        "wednesday": "Wednesday",
+        "thursday": "Thursday",
+        "friday": "Friday",
+        "saturday": "Saturday",
+        "sunday": "Sunday"
+      }
+    },
+    "schedule_direction": {
+      "options": {
+        "Charging": "Charging",
+        "Discharging": "Discharging"
+      }
+    }
+  },
   "entity": {
     "sensor": {
-      "operating_mode": {
-        "name": "Operating Mode"
+      "battery_state_of_charge": {
+        "name": "Battery state of charge"
+      },
+      "battery_capacity": {
+        "name": "Battery capacity"
+      },
+      "battery_temperature": {
+        "name": "Battery temperature"
+      },
+      "battery_rated_capacity": {
+        "name": "Battery rated capacity"
+      },
+      "battery_voltage": {
+        "name": "Battery voltage"
+      },
+      "battery_current": {
+        "name": "Battery current"
+      },
+      "battery_error_code": {
+        "name": "Battery error code"
       },
       "solar_power": {
-        "name": "Solar Power"
+        "name": "Solar power"
+      },
+      "battery_power": {
+        "name": "Battery power"
+      },
+      "battery_charge_power": {
+        "name": "Battery charge power"
+      },
+      "battery_discharge_power": {
+        "name": "Battery discharge power"
+      },
+      "battery_available_capacity": {
+        "name": "Battery available capacity"
+      },
+      "pv_power": {
+        "name": "PV power"
+      },
+      "grid_power": {
+        "name": "Grid power"
+      },
+      "offgrid_power": {
+        "name": "Off-grid power"
+      },
+      "total_pv_energy": {
+        "name": "Total PV energy"
+      },
+      "total_grid_export_energy": {
+        "name": "Total grid export energy"
+      },
+      "total_grid_import_energy": {
+        "name": "Total grid import energy"
+      },
+      "total_load_energy": {
+        "name": "Total load energy"
+      },
+      "phase_a_power": {
+        "name": "Phase A power"
+      },
+      "phase_b_power": {
+        "name": "Phase B power"
+      },
+      "phase_c_power": {
+        "name": "Phase C power"
+      },
+      "ct_input_energy": {
+        "name": "CT input energy"
+      },
+      "ct_output_energy": {
+        "name": "CT output energy"
+      },
+      "total_ct_power": {
+        "name": "Total CT power"
+      },
+      "ct_parse_state": {
+        "name": "CT parse state"
+      },
+      "wifi_signal_strength": {
+        "name": "Wi-Fi signal strength"
+      },
+      "wifi_ssid": {
+        "name": "Wi-Fi SSID"
+      },
+      "wifi_ip_address": {
+        "name": "Wi-Fi IP address"
+      },
+      "wifi_gateway": {
+        "name": "Wi-Fi gateway"
+      },
+      "wifi_subnet_mask": {
+        "name": "Wi-Fi subnet mask"
+      },
+      "wifi_dns_server": {
+        "name": "Wi-Fi DNS server"
+      },
+      "device_model": {
+        "name": "Device model"
+      },
+      "firmware_version": {
+        "name": "Firmware version"
+      },
+      "bluetooth_mac_address": {
+        "name": "Bluetooth MAC address"
+      },
+      "wifi_mac_address": {
+        "name": "Wi-Fi MAC address"
+      },
+      "device_ip_address": {
+        "name": "Device IP address"
+      },
+      "operating_mode": {
+        "name": "Operating mode"
+      },
+      "operation_status": {
+        "name": "Status",
+        "state": {
+          "charging": "Charging",
+          "discharging": "Discharging",
+          "standby": "Standby",
+          "mode_error": "Operating mode error",
+          "storage_charging": "Storage – charging",
+          "storage_holding": "Storage – holding",
+          "storage_solar_check": "Storage – solar test",
+          "storage_solar_charging": "Storage – solar charging",
+          "storage_discharging": "Storage – discharging"
+        }
+      },
+      "storage_status": {
+        "name": "Storage status",
+        "state": {
+          "disabled": "Disabled",
+          "observing": "Automatic – observing",
+          "full_charge_detected": "Storage – full charge detected",
+          "storage_charging": "Storage – charging",
+          "storage_holding": "Storage – holding",
+          "storage_solar_check": "Storage – solar test",
+          "storage_solar_charging": "Storage – solar charging",
+          "storage_discharging": "Storage – discharging"
+        }
+      },
+      "self_test": {
+        "name": "Self-test",
+        "state": {
+          "ok": "OK",
+          "warning": "Warning",
+          "error": "Error"
+        }
       }
     },
     "binary_sensor": {
+      "battery_charging": {
+        "name": "Battery charging"
+      },
+      "battery_discharging": {
+        "name": "Battery discharging"
+      },
+      "ct_meter_connected": {
+        "name": "CT meter connected"
+      },
+      "bluetooth_connected": {
+        "name": "Bluetooth connected"
+      },
       "solar_surplus": {
-        "name": "Solar Surplus"
+        "name": "Solar output"
+      },
+      "integration_problem": {
+        "name": "Integration problem"
       }
     },
     "select": {
       "operating_mode": {
-        "name": "Operating Mode",
+        "name": "Operating mode",
         "state": {
-          "Auto": "Auto (Self-Consuming)",
-          "AI": "AI Mode",
+          "Auto": "Auto (self-consumption)",
+          "AI": "AI mode",
           "Standby": "Standby (0 W)",
           "Manual": "Manual power",
-          "Storage": "Storage / Winter"
+          "Schedule": "Schedule",
+          "Storage": "Storage / winter"
         }
       }
     },
     "switch": {
       "led_ctrl": {
-        "name": "LED Control"
+        "name": "LED display"
       },
       "automatic_storage": {
         "name": "Automatic storage / winter operation"
@@ -165,38 +360,131 @@
     "button": {
       "clear_schedules": {
         "name": "Clear all schedules"
-      },
-      "refresh_battery": {
-        "name": "Refresh Battery Status"
-      },
-      "refresh_energy_status": {
-        "name": "Refresh Energy Status"
-      },
-      "refresh_mode": {
-        "name": "Refresh Mode & CT Data"
       }
+    }
+  },
+  "exceptions": {
+    "mode_not_confirmed": {
+      "message": "The Venus E did not confirm operating mode {mode}."
+    },
+    "unknown_config_entry": {
+      "message": "Marstek configuration entry {entry_id} was not found."
+    },
+    "mode_set_failed": {
+      "message": "Operating mode {mode} could not be set."
+    },
+    "schedule_set_failed": {
+      "message": "The manual schedule could not be saved."
+    },
+    "schedules_clear_failed": {
+      "message": "The manual schedules could not be cleared."
+    },
+    "schedule_slots_failed": {
+      "message": "Schedule slots {slots} could not be disabled."
+    },
+    "ble_set_failed": {
+      "message": "Bluetooth advertising could not be changed."
+    },
+    "led_set_failed": {
+      "message": "The LED display could not be changed."
+    },
+    "manual_power_failed": {
+      "message": "The manual power could not be saved or applied."
+    },
+    "automatic_storage_failed": {
+      "message": "Automatic winter operation could not be changed."
     }
   },
   "services": {
     "set_mode": {
-      "name": "Set Operating Mode",
-      "description": "Change the operating mode of the Marstek Venus E system"
+      "name": "Set operating mode",
+      "description": "Set and persist the desired operating mode.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Device",
+          "description": "Marstek configuration entry that owns the target device."
+        },
+        "mode": {
+          "name": "Operating mode",
+          "description": "Persistent operating-mode setpoint."
+        }
+      }
     },
     "set_manual_schedule": {
-      "name": "Set Manual Schedule",
-      "description": "Configure a manual charging/discharging schedule"
-    },
-    "set_passive_mode": {
-      "name": "Set Passive Mode",
-      "description": "Set passive mode with a specific power target"
+      "name": "Set manual schedule",
+      "description": "Configure one charging or discharging schedule slot.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Device",
+          "description": "Marstek configuration entry that owns the target device."
+        },
+        "time_num": {
+          "name": "Time slot",
+          "description": "Schedule slot number from 0 to 9."
+        },
+        "start_time": {
+          "name": "Start time",
+          "description": "Start of the schedule slot."
+        },
+        "end_time": {
+          "name": "End time",
+          "description": "Must be later than the start time."
+        },
+        "week_set": {
+          "name": "Days of week",
+          "description": "Bitmask from 1 to 127; 127 represents every day."
+        },
+        "mode": {
+          "name": "Direction",
+          "description": "Charge or discharge."
+        },
+        "power": {
+          "name": "Power",
+          "description": "Positive power magnitude from 100 to 2500 W."
+        },
+        "enable": {
+          "name": "Enable schedule",
+          "description": "Enable the schedule slot on the device."
+        }
+      }
     },
     "clear_all_schedules": {
-      "name": "Clear All Manual Schedules",
-      "description": "Disable all manual charging/discharging schedules (slots 0-9)"
+      "name": "Clear all manual schedules",
+      "description": "Disable all ten manual charging and discharging schedule slots.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Device",
+          "description": "Marstek configuration entry that owns the target device."
+        }
+      }
     },
-    "change_operating_mode": {
-      "name": "Change Operating Mode",
-      "description": "Change the operating mode with optional manual schedule configuration (when Manual mode is selected)"
+    "set_ble_adv": {
+      "name": "Control Bluetooth advertising",
+      "description": "Enable or disable Bluetooth advertising.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Device",
+          "description": "Marstek configuration entry that owns the target device."
+        },
+        "enable": {
+          "name": "Enable",
+          "description": "Turn Bluetooth advertising on or off."
+        }
+      }
+    },
+    "set_led_ctrl": {
+      "name": "Control LED display",
+      "description": "Turn the device LED display on or off.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Device",
+          "description": "Marstek configuration entry that owns the target device."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Turn the LED display on or off."
+        }
+      }
     }
   }
 }

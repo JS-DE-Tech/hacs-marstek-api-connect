@@ -7,18 +7,33 @@ DOMAIN: Final = "hacs_marstek_api_connect"
 DEFAULT_PORT: Final = 30000
 DEFAULT_SCAN_INTERVAL: Final = 10  # seconds (fast ES.GetStatus polling)
 DEFAULT_TIMEOUT: Final = 30.0  # seconds - UDP request timeout (API requires 30s)
-MIN_TIME_BETWEEN_REQUESTS: Final = 30.0  # seconds - minimum time between UDP requests per API spec
+
+# Passive-mode renewal for persistent Standby/Manual and storage phases.
+# The countdown must comfortably exceed the renewal interval so a missed
+# fast-poll cycle can never let the Passive configuration expire.
+PASSIVE_CD_TIME_SECONDS: Final = 600
+PASSIVE_KEEPALIVE_SECONDS: Final = 300
+MODE_ENFORCEMENT_RETRY_SECONDS: Final = 30
+# Retry a failed setpoint every 30 minutes after the regular attempts fail.
+MODE_ENFORCEMENT_RECOVERY_SECONDS: Final = 1800
 
 # Modes
 MODE_AUTO: Final = "Auto"
 MODE_AI: Final = "AI"
 MODE_MANUAL: Final = "Manual"
 MODE_PASSIVE: Final = "Passive"
+MODE_SCHEDULE: Final = "Schedule"
 MODE_STORAGE: Final = "Storage"
 MODE_STANDBY: Final = "Standby"
 
-VALID_MODES: Final = [MODE_AUTO, MODE_AI, MODE_MANUAL, MODE_PASSIVE]
-SELECTABLE_MODES: Final = [MODE_AUTO, MODE_AI, MODE_STANDBY, MODE_MANUAL, MODE_STORAGE]
+SELECTABLE_MODES: Final = [
+    MODE_AUTO,
+    MODE_AI,
+    MODE_STANDBY,
+    MODE_MANUAL,
+    MODE_SCHEDULE,
+    MODE_STORAGE,
+]
 
 # Storage/winter mode thresholds
 STORAGE_CHARGE_START_SOC: Final = 45
@@ -33,72 +48,60 @@ DEFAULT_SOLAR_SURPLUS_ON_MINUTES: Final = 2
 DEFAULT_SOLAR_SURPLUS_OFF_MINUTES: Final = 5
 SOLAR_CHECK_MAX_SECONDS: Final = 300
 SOLAR_CHECK_COOLDOWN_SECONDS: Final = 600
+SOLAR_CHARGE_CONFIRMATION_SECONDS: Final = 120
+BATTERY_POWER_AVERAGE_SECONDS: Final = 120
 BATTERY_POWER_THRESHOLD_W: Final = 100
 
-# API Methods
-API_GET_REALTIME_DATA: Final = "get_realtime_data"
-API_GET_BATTERY_INFO: Final = "get_battery_info"
-API_SET_MODE: Final = "set_mode"
-API_SET_MANUAL_SCHEDULE: Final = "set_manual_schedule"
-API_SET_PASSIVE_MODE: Final = "set_passive_mode"
-API_GET_SCHEDULE: Final = "get_schedule"
+# Solar-charging hysteresis. The phase is entered once the battery power
+# average rises above BATTERY_POWER_THRESHOLD_W and is only left once charging
+# has actually stopped. Using the entry threshold for both directions would
+# leave no dead band and let an average hovering at 100 W flip the phase
+# repeatedly.
+SOLAR_CHARGING_EXIT_W: Final = 0
 
-# Battery Attributes
-ATTR_BATTERY_SOC: Final = "battery_soc"
-ATTR_BATTERY_TEMPERATURE: Final = "battery_temperature"
-ATTR_BATTERY_CAPACITY: Final = "battery_capacity"
-ATTR_BATTERY_RATED_CAPACITY: Final = "battery_rated_capacity"
-ATTR_BATTERY_POWER: Final = "battery_power"
-ATTR_BATTERY_CHARGING: Final = "battery_charging"
-ATTR_BATTERY_DISCHARGING: Final = "battery_discharging"
+# Automatic winter controller day counters
+STORAGE_OBSERVATION_DAYS: Final = 5
+STORAGE_EXIT_FULL_CHARGE_DAYS: Final = 2
+STORAGE_VALID_DAY_HOURS: Final = 20
+STORAGE_FULL_CHARGE_ARM_SOC: Final = 95
+STORAGE_FULL_CHARGE_SOC: Final = 99
 
-# PV Attributes
-ATTR_PV_POWER: Final = "pv_power"
-ATTR_PV_VOLTAGE: Final = "pv_voltage"
-ATTR_PV_CURRENT: Final = "pv_current"
+# Internal storage phase to translated sensor state
+STORAGE_PHASE_STATES: Final = {
+    "charging": "storage_charging",
+    "holding": "storage_holding",
+    "solar_check": "storage_solar_check",
+    "solar_charging": "storage_solar_charging",
+    "auto": "storage_discharging",
+}
 
-# Grid Attributes
-ATTR_GRID_POWER: Final = "grid_power"
-ATTR_OFFGRID_POWER: Final = "offgrid_power"
+OPERATION_STATUS_STATES: Final = [
+    "charging",
+    "discharging",
+    "standby",
+    "mode_error",
+    *STORAGE_PHASE_STATES.values(),
+]
 
-# Energy Attributes
-ATTR_TOTAL_PV_ENERGY: Final = "total_pv_energy"
-ATTR_TOTAL_GRID_EXPORT_ENERGY: Final = "total_grid_export_energy"
-ATTR_TOTAL_GRID_IMPORT_ENERGY: Final = "total_grid_import_energy"
-ATTR_TOTAL_LOAD_ENERGY: Final = "total_load_energy"
-
-# CT Meter Attributes
-ATTR_PHASE_A_POWER: Final = "phase_a_power"
-ATTR_PHASE_B_POWER: Final = "phase_b_power"
-ATTR_PHASE_C_POWER: Final = "phase_c_power"
-ATTR_TOTAL_CT_POWER: Final = "total_ct_power"
-ATTR_CT_METER_CONNECTED: Final = "ct_meter_connected"
-
-# WiFi Attributes
-ATTR_WIFI_SIGNAL_STRENGTH: Final = "wifi_signal_strength"
-ATTR_WIFI_SSID: Final = "wifi_ssid"
-
-# Operating Mode
-ATTR_OPERATING_MODE: Final = "operating_mode"
-
-# CT Energy Attributes (from ES.GetMode/EM.GetStatus)
-ATTR_CT_INPUT_ENERGY: Final = "ct_input_energy"
-ATTR_CT_OUTPUT_ENERGY: Final = "ct_output_energy"
+STORAGE_STATUS_STATES: Final = [
+    "disabled",
+    "observing",
+    "full_charge_detected",
+    *STORAGE_PHASE_STATES.values(),
+]
 
 # Sensors Configuration
 # Sensors from ES.GetStatus (automatic updates)
 SENSORS_BATTERY: Final = {
     "battery_state_of_charge": {
-        "name": "Battery State of Charge",
         "unit": "%",
-        #"icon": "mdi:battery-percent",
+        # Home Assistant selects the battery icon from the device class.
         "device_class": "battery",
         "state_class": "measurement",
         "attr": "bat_soc",
         "source": "auto",  # From ES.GetStatus
     },
     "battery_capacity": {
-        "name": "Battery Capacity",
         "unit": "Wh",
         "icon": "mdi:battery-heart",
         "device_class": "energy",
@@ -107,10 +110,9 @@ SENSORS_BATTERY: Final = {
     },
 }
 
-# Sensors from Bat.GetStatus (manual refresh button)
+# Sensors from the slower Bat.GetStatus poll.
 SENSORS_BATTERY_MANUAL: Final = {
     "battery_temperature": {
-        "name": "Battery Temperature",
         "unit": "°C",
         "icon": "mdi:thermometer",
         "device_class": "temperature",
@@ -118,7 +120,6 @@ SENSORS_BATTERY_MANUAL: Final = {
         "source": "battery",  # From Bat.GetStatus
     },
     "battery_rated_capacity": {
-        "name": "Battery Rated Capacity",
         "unit": "Wh",
         "icon": "mdi:battery-heart",
         "device_class": "energy",
@@ -126,7 +127,6 @@ SENSORS_BATTERY_MANUAL: Final = {
         "source": "battery",  # From Bat.GetStatus
     },
     "battery_voltage": {
-        "name": "Battery Voltage",
         "unit": "V",
         "icon": "mdi:sine-wave",
         "device_class": "voltage",
@@ -135,7 +135,6 @@ SENSORS_BATTERY_MANUAL: Final = {
         "source": "battery",
     },
     "battery_current": {
-        "name": "Battery Current",
         "unit": "A",
         "icon": "mdi:current-dc",
         "device_class": "current",
@@ -144,7 +143,6 @@ SENSORS_BATTERY_MANUAL: Final = {
         "source": "battery",
     },
     "battery_error_code": {
-        "name": "Battery Error Code",
         "icon": "mdi:alert-circle-outline",
         "device_class": None,
         "attr": "error_code",
@@ -154,7 +152,6 @@ SENSORS_BATTERY_MANUAL: Final = {
 
 SENSORS_BATTERY_DERIVED: Final = {
     "solar_power": {
-        "name": "Solar Power",
         "unit": "W",
         "icon": "mdi:solar-power",
         "device_class": "power",
@@ -163,7 +160,6 @@ SENSORS_BATTERY_DERIVED: Final = {
         "source": "derived",
     },
     "battery_power": {
-        "name": "Battery Power",
         "unit": "W",
         "icon": "mdi:battery-charging-medium",
         "device_class": "power",
@@ -172,7 +168,6 @@ SENSORS_BATTERY_DERIVED: Final = {
         "source": "derived",
     },
     "battery_charge_power": {
-        "name": "Battery Charge Power",
         "unit": "W",
         "icon": "mdi:battery-arrow-up",
         "device_class": "power",
@@ -181,7 +176,6 @@ SENSORS_BATTERY_DERIVED: Final = {
         "source": "derived",
     },
     "battery_discharge_power": {
-        "name": "Battery Discharge Power",
         "unit": "W",
         "icon": "mdi:battery-arrow-down",
         "device_class": "power",
@@ -190,7 +184,6 @@ SENSORS_BATTERY_DERIVED: Final = {
         "source": "derived",
     },
     "battery_available_capacity": {
-        "name": "Battery Available Capacity",
         "unit": "Wh",
         "icon": "mdi:battery-plus",
         "device_class": "energy_storage",
@@ -200,17 +193,15 @@ SENSORS_BATTERY_DERIVED: Final = {
     },
 }
 
-# Binary sensors from Bat.GetStatus (manual refresh button)
+# Binary sensors from the slower Bat.GetStatus poll.
 SENSORS_BATTERY_BINARY: Final = {
     "battery_charging": {
-        "name": "Battery Charging",
         "icon": "mdi:battery-charging",
         "device_class": "battery_charging",
         "attr": "charg_flag",
         "source": "battery",  # From Bat.GetStatus
     },
     "battery_discharging": {
-        "name": "Battery Discharging",
         "icon": "mdi:battery-minus",
         "device_class": None,
         "attr": "dischrg_flag",
@@ -220,7 +211,6 @@ SENSORS_BATTERY_BINARY: Final = {
 
 SENSORS_PV: Final = {
     "pv_power": {
-        "name": "PV Power",
         "unit": "W",
         "icon": "mdi:solar-power",
         "device_class": "power",
@@ -230,7 +220,6 @@ SENSORS_PV: Final = {
 
 SENSORS_GRID: Final = {
     "grid_power": {
-        "name": "Grid Power",
         "unit": "W",
         "icon": "mdi:transmission-tower",
         "device_class": "power",
@@ -238,7 +227,6 @@ SENSORS_GRID: Final = {
         "attr": "ongrid_power",  # Direct field from ES.GetStatus
     },
     "offgrid_power": {
-        "name": "Off-Grid Power",
         "unit": "W",
         "icon": "mdi:power-off",
         "device_class": "power",
@@ -248,7 +236,6 @@ SENSORS_GRID: Final = {
 
 SENSORS_ENERGY: Final = {
     "total_pv_energy": {
-        "name": "Total PV Energy",
         "unit": "Wh",  # Device returns Wh, not kWh
         "icon": "mdi:solar-power-box",
         "device_class": "energy",
@@ -256,7 +243,6 @@ SENSORS_ENERGY: Final = {
         "attr": "total_pv_energy",  # Direct field from ES.GetStatus
     },
     "total_grid_export_energy": {
-        "name": "Total Grid Export Energy",
         "unit": "Wh",  # Device returns Wh, not kWh
         "icon": "mdi:transmission-tower-export",
         "device_class": "energy",
@@ -264,7 +250,6 @@ SENSORS_ENERGY: Final = {
         "attr": "total_grid_output_energy",  # Direct field from ES.GetStatus
     },
     "total_grid_import_energy": {
-        "name": "Total Grid Import Energy",
         "unit": "Wh",  # Device returns Wh, not kWh
         "icon": "mdi:transmission-tower-import",
         "device_class": "energy",
@@ -272,7 +257,6 @@ SENSORS_ENERGY: Final = {
         "attr": "total_grid_input_energy",  # Direct field from ES.GetStatus
     },
     "total_load_energy": {
-        "name": "Total Load Energy",
         "unit": "Wh",  # Device returns Wh, not kWh
         "icon": "mdi:home-lightning-bolt",
         "device_class": "energy",
@@ -281,10 +265,9 @@ SENSORS_ENERGY: Final = {
     },
 }
 
-# CT meter sensors from ES.GetMode (manual refresh button)
+# CT meter sensors from the slower ES.GetMode poll.
 SENSORS_CT: Final = {
     "phase_a_power": {
-        "name": "Phase A Power",
         "unit": "W",
         "icon": "mdi:lightning-bolt",
         "device_class": "power",
@@ -292,7 +275,6 @@ SENSORS_CT: Final = {
         "source": "mode",  # From ES.GetMode
     },
     "phase_b_power": {
-        "name": "Phase B Power",
         "unit": "W",
         "icon": "mdi:lightning-bolt",
         "device_class": "power",
@@ -300,7 +282,6 @@ SENSORS_CT: Final = {
         "source": "mode",  # From ES.GetMode
     },
     "phase_c_power": {
-        "name": "Phase C Power",
         "unit": "W",
         "icon": "mdi:lightning-bolt",
         "device_class": "power",
@@ -308,7 +289,6 @@ SENSORS_CT: Final = {
         "source": "mode",  # From ES.GetMode
     },
     "ct_input_energy": {
-        "name": "CT Input Energy",
         "unit": "Wh",
         "icon": "mdi:lightning-bolt-circle",
         "device_class": "energy",
@@ -317,7 +297,6 @@ SENSORS_CT: Final = {
         "source": "mode",  # From ES.GetMode - multiply by 0.1
     },
     "ct_output_energy": {
-        "name": "CT Output Energy",
         "unit": "Wh",
         "icon": "mdi:lightning-bolt-circle",
         "device_class": "energy",
@@ -326,7 +305,6 @@ SENSORS_CT: Final = {
         "source": "mode",  # From ES.GetMode - multiply by 0.1
     },
     "total_ct_power": {
-        "name": "Total CT Power",
         "unit": "W",
         "icon": "mdi:lightning-bolt",
         "device_class": "power",
@@ -334,7 +312,6 @@ SENSORS_CT: Final = {
         "source": "mode",  # From ES.GetMode
     },
     "ct_parse_state": {
-        "name": "CT Parse State",
         "icon": "mdi:meter-electric-outline",
         "device_class": None,
         "attr": "parse_state",
@@ -344,7 +321,6 @@ SENSORS_CT: Final = {
 
 SENSORS_WIFI: Final = {
     "wifi_signal_strength": {
-        "name": "WiFi Signal Strength",
         "unit": "dBm",
         "icon": "mdi:wifi",
         "device_class": "signal_strength",
@@ -353,35 +329,30 @@ SENSORS_WIFI: Final = {
         "source": "wifi",
     },
     "wifi_ssid": {
-        "name": "WiFi SSID",
         "icon": "mdi:wifi-settings",
         "device_class": None,
         "attr": "ssid",
         "source": "wifi",
     },
     "wifi_ip_address": {
-        "name": "WiFi IP Address",
         "icon": "mdi:ip-network",
         "device_class": None,
         "attr": "sta_ip",
         "source": "wifi",
     },
     "wifi_gateway": {
-        "name": "WiFi Gateway",
         "icon": "mdi:router-network",
         "device_class": None,
         "attr": "sta_gate",
         "source": "wifi",
     },
     "wifi_subnet_mask": {
-        "name": "WiFi Subnet Mask",
         "icon": "mdi:ip-network-outline",
         "device_class": None,
         "attr": "sta_mask",
         "source": "wifi",
     },
     "wifi_dns_server": {
-        "name": "WiFi DNS Server",
         "icon": "mdi:dns",
         "device_class": None,
         "attr": "sta_dns",
@@ -391,35 +362,30 @@ SENSORS_WIFI: Final = {
 
 SENSORS_DEVICE: Final = {
     "device_model": {
-        "name": "Device Model",
         "icon": "mdi:battery-unknown",
         "device_class": None,
         "attr": "device",
         "source": "device",
     },
     "firmware_version": {
-        "name": "Firmware Version",
         "icon": "mdi:chip",
         "device_class": None,
         "attr": "ver",
         "source": "device",
     },
     "bluetooth_mac_address": {
-        "name": "Bluetooth MAC Address",
         "icon": "mdi:bluetooth",
         "device_class": None,
         "attr": "ble_mac",
         "source": "device",
     },
     "wifi_mac_address": {
-        "name": "WiFi MAC Address",
         "icon": "mdi:wifi-cog",
         "device_class": None,
         "attr": "wifi_mac",
         "source": "device",
     },
     "device_ip_address": {
-        "name": "Device IP Address",
         "icon": "mdi:ip",
         "device_class": None,
         "attr": "ip",
@@ -430,7 +396,6 @@ SENSORS_DEVICE: Final = {
 # CT meter binary sensor from ES.GetMode
 SENSORS_CT_BINARY: Final = {
     "ct_meter_connected": {
-        "name": "CT Meter Connected",
         "icon": "mdi:meter-electric",
         "device_class": "connectivity",
         "attr": "ct_state",
@@ -441,23 +406,32 @@ SENSORS_CT_BINARY: Final = {
 # Operating mode sensor from ES.GetMode
 SENSORS_SYSTEM: Final = {
     "operating_mode": {
-        "name": "Operating Mode",
         "icon": "mdi:cog",
         "device_class": None,
         "attr": "mode",
         "source": "auto",  # Mode is added to main data by coordinator
     },
     "operation_status": {
-        "name": "Status",
         "icon": "mdi:battery-sync",
-        "device_class": None,
+        "device_class": "enum",
+        "options": OPERATION_STATUS_STATES,
+        "translation_key": "operation_status",
         "attr": None,
         "source": "derived",
     },
     "storage_status": {
-        "name": "Status-Lagerung",
         "icon": "mdi:snowflake-alert",
-        "device_class": None,
+        "device_class": "enum",
+        "options": STORAGE_STATUS_STATES,
+        "translation_key": "storage_status",
+        "attr": None,
+        "source": "derived",
+    },
+    "self_test": {
+        "icon": "mdi:clipboard-pulse",
+        "device_class": "enum",
+        "options": ["ok", "warning", "error"],
+        "translation_key": "self_test",
         "attr": None,
         "source": "derived",
     },
@@ -483,38 +457,31 @@ BINARY_SENSORS: Final = {
     **SENSORS_BATTERY_BINARY,
     **SENSORS_CT_BINARY,
     "bluetooth_connected": {
-        "name": "Bluetooth Connected",
         "icon": "mdi:bluetooth-connect",
         "device_class": "connectivity",
         "attr": "state",
         "source": "ble",
     },
     "solar_surplus": {
-        "name": "Solar Surplus",
         "icon": "mdi:solar-power-variant",
         "device_class": None,
+        "translation_key": "solar_surplus",
+        "attr": None,
+        "source": "derived",
+    },
+    "integration_problem": {
+        "icon": "mdi:alert-circle",
+        "device_class": "problem",
+        "translation_key": "integration_problem",
         "attr": None,
         "source": "derived",
     },
 }
 
-# Week Set Bitmask
-WEEK_SET_MONDAY: Final = 1
-WEEK_SET_TUESDAY: Final = 2
-WEEK_SET_WEDNESDAY: Final = 4
-WEEK_SET_THURSDAY: Final = 8
-WEEK_SET_FRIDAY: Final = 16
-WEEK_SET_SATURDAY: Final = 32
-WEEK_SET_SUNDAY: Final = 64
-WEEK_SET_ALL_DAYS: Final = 127
-WEEK_SET_WEEKDAYS: Final = 31
-WEEK_SET_WEEKEND: Final = 96
-
 # Configuration Keys
 CONF_IP_ADDRESS: Final = "ip_address"
 CONF_PORT: Final = "port"
 CONF_BLE_MAC: Final = "ble_mac"
-CONF_TIMEOUT: Final = "timeout"
 CONF_FAST_SCAN_INTERVAL: Final = "fast_scan_interval"
 CONF_MODE_SCAN_INTERVAL: Final = "mode_scan_interval"
 CONF_ENABLED_MODES: Final = "enabled_modes"

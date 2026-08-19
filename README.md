@@ -10,6 +10,7 @@ Home Assistant integration for Marstek Venus E battery storage systems using the
 
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Custom%20Integration-41BDF5?logo=home-assistant&logoColor=white)](https://www.home-assistant.io/)
 [![HACS](https://img.shields.io/badge/HACS-Custom%20Repository-41BDF5)](https://hacs.xyz/)
+[![Validate](https://github.com/JS-DE-Tech/hacs-marstek-api-connect/actions/workflows/validate.yml/badge.svg)](https://github.com/JS-DE-Tech/hacs-marstek-api-connect/actions/workflows/validate.yml)
 [![Protocol](https://img.shields.io/badge/Protocol-Local%20UDP-success)](#api-reference)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](https://github.com/JS-DE-Tech/hacs-marstek-api-connect/blob/main/LICENSE)
 [![Support via PayPal](https://img.shields.io/badge/Support%20via-PayPal-0070BA?logo=paypal&logoColor=white)](https://paypal.me/JensSaffrich)
@@ -25,13 +26,13 @@ continue to be used in parallel.
 - Local UDP communication without a cloud dependency
 - Automatic discovery with manual IP configuration as a fallback
 - Battery, power, energy and three-phase CT monitoring
-- User-facing operating modes: Auto, AI, Standby, Manual power and Storage/Winter
+- User-facing operating modes: Auto, AI, Standby, Manual power, Schedule and Storage/Winter
 - Configurable list of modes shown in the operating-mode selector
 - Ten configurable manual schedule slots
-- Automatic storage/winter controller with configurable solar-surplus detection
+- Automatic storage/winter controller with configurable solar-output detection
 - Separate live-data and mode/CT polling intervals
 - LED control as a regular Home Assistant switch
-- German, English and French translations
+- Complete German and English translations
 - Native Home Assistant services for automations
 
 Default polling intervals:
@@ -48,22 +49,46 @@ mode sensor remains the physical feedback reported by `ES.GetMode`.
 
 - **Standby** sends a neutral 0 W Passive command.
 - **Manual** sends the value stored by the **Manual power** slider.
+- **Schedule** activates the physical Marstek Manual mode and therefore the
+  configured schedule slots.
 - The slider ranges from -2400 W to +2400 W in 100 W steps.
 - Negative values charge; positive values discharge.
 - Selecting Standby does not change the stored slider value.
 - Changing the slider while Manual is active applies the new value immediately.
 
 The Venus E 3.0 requires a finite Passive countdown. Standby and Manual therefore
-use a 300-second command that the integration renews after 240 seconds.
+use a 600-second command that the integration renews after 300 seconds. The
+renewal runs on the fast update cycle, so the countdown can never expire between
+the slower supervision checks.
 
 If physical feedback differs from the persistent setpoint, the integration checks
-it every two minutes and tries to restore it up to five times. Standby additionally
-requires three consecutive Grid Power samples within ±30 W. After five failed
-attempts, the regular Status sensor reports `Fehler Betriebsmodus`. Selecting a
-mode again resets the error and retry counter.
+it every two minutes and tries to restore it. A write is not considered stable
+until a later regular `ES.GetMode` poll still reports the requested mode. Standby
+additionally requires three consecutive fast Grid Power samples within ±30 W.
+Recurring dropbacks therefore continue the same restore counter. After five
+failed correction cycles, the regular Status sensor reports the `mode_error`
+state and the integration keeps retrying every 30 minutes until the device
+confirms the setpoint again. Selecting a mode also resets the error and retry
+counter immediately.
 
 Storage and automatic winter operation manage their own internal mode changes and
-temporarily take priority over this supervision.
+temporarily take priority over the normal setpoint. Their physical commands use
+the same supervision rule: an immediate response is not considered stable until
+a later regular `ES.GetMode` poll confirms it. Repeated storage-mode dropbacks
+therefore also lead to `mode_error` after five correction attempts.
+
+## Manual Storage mode
+
+Selecting **Storage** directly uses a self-contained 45/50/55% hysteresis:
+
+- At or below 45%, charging at 500 W starts and remains active until 50%.
+- At or above 55%, Auto starts and remains active until the battery returns to
+  50%.
+- When neither active transition applies, a renewed 0 W Passive command holds
+  the battery.
+
+The active phase is retained inside the hysteresis, preventing repeated mode
+changes around a threshold.
 
 ## Automatic storage / winter operation
 
@@ -83,8 +108,9 @@ storage without fixed calendar dates.
    two-minute average of at least 1400 W and clears it at a five-minute average
    below 1000 W.
 6. Detected surplus starts a five-minute Auto-mode solar test. A two-minute
-   average Battery Power above +100 W confirms charging. Below -100 W means
-   discharging; values between those thresholds are neutral.
+   average Battery Power above +100 W confirms charging. Confirmed solar
+   charging ends once that average drops to 0 W or below, so a weak charge
+   between 0 W and +100 W cannot flip the phase back and forth.
 7. A failed solar test has a ten-minute cooldown. Auto may use stored energy down
    to 50%, after which the battery returns to 0 W Passive holding.
 8. A full-charge day requires confirmed solar charging from 95% or below to at
@@ -95,25 +121,30 @@ Controller state and daily counters are stored by Home Assistant and survive
 integration reloads and restarts. Selecting an operating mode manually disables
 automatic storage to prevent competing commands.
 
-Configure the solar source under **Configure → Configure solar surplus**. The
+Configure the solar source under **Configure → Configure solar output**. The
 source must be a Home Assistant power sensor using W or kW. If it is missing,
 unknown, unavailable, or has an unsupported unit, surplus is false and no new
 solar test starts. The solar entities remain informational outside automatic
 winter operation.
 
-The **Status-Lagerung** sensor can report:
+The **Storage status** sensor reports one of these states, which Home Assistant
+shows in the user's language:
 
-- `Deaktiviert`
-- `Automatik – Beobachtung (n/5 Tage)`
-- `Lagerung – Laden`
-- `Lagerung – Halten`
-- `Lagerung – Solarprüfung`
-- `Lagerung – Solarladen`
-- `Lagerung – Entladen`
-- `Lagerung – Vollladung erkannt (1/2 Tage)`
+- `disabled`
+- `observing`
+- `storage_charging`
+- `storage_holding`
+- `storage_solar_check`
+- `storage_solar_charging`
+- `storage_discharging`
+- `full_charge_detected`
 
-The regular **Status** sensor reports `Standby`, `Laden`, `Entladen`, or the
-current Storage phase.
+Its day counters are attributes rather than part of the state:
+`low_soc_days`, `low_soc_days_required`, `full_soc_days`,
+`full_soc_days_required` and the internal `storage_phase`.
+
+The regular **Status** sensor reports `standby`, `charging`, `discharging`,
+`mode_error`, or the current `storage_*` phase.
 
 ## Installation
 
@@ -171,11 +202,38 @@ registry entries. The entity registry is authoritative.
 | Three-phase CT | Phase A, B and C power, CT input/output energy, parser state and connection state |
 | Energy totals | PV energy, grid import/export energy and load energy |
 | Network and device | WiFi signal and network details, device model, firmware, MAC addresses, device IP and Bluetooth connection |
-| System | Operating mode, Status, Status-Lagerung and solar-surplus state |
+| System | Operating mode, Status, Storage status, Self-test and Solar Output state |
+
+### Status sensors
+
+**Status** and **Storage status** are enum sensors. Their states are
+language-independent keys that Home Assistant translates for display, and the
+winter-controller day counters are attributes instead of text. See
+[Automatic storage / winter operation](#automatic-storage--winter-operation)
+for the full list of states.
+
+### Self-test
+
+The **Self-test** sensor reports `OK`, `Warning` or `Error` (translated by Home
+Assistant) and runs internal
+checks on every update cycle:
+
+- device connectivity (age of the last successful answer)
+- operating-mode supervision (setpoint restored, restore attempts, error state)
+- Passive renewal age for persistent Standby/Manual
+- operating-mode deviations detected during the last 24 hours
+- validity of the configured solar sensor
+- gaps in the winter-controller day tracking
+
+The result of each check is available as a sensor attribute. Mode-dropout
+incidents are deduplicated and retained for 24 hours across restarts. The **Problem**
+binary sensor (device class `problem`) turns on while the self-test reports
+`error`, so it can drive notification automations directly. Both entities stay
+available while the device is unreachable in order to report exactly that.
 
 ### Controls
 
-- **Operating Mode** selector
+- **Operating Mode** selector, including the separate physical **Schedule** mode
 - **Manual power** slider (-2400 W to +2400 W)
 - **LED Control** switch
 - **Automatic storage / winter operation** switch
@@ -196,10 +254,24 @@ data:
   mode: Auto
 ```
 
-Supported physical API modes are `Auto`, `AI`, `Manual` and `Passive`. In the
+The service accepts the same persistent setpoints as the Operating Mode
+selector: `Auto`, `AI`, `Standby`, `Manual`, `Schedule` and `Storage`. In the
 user-facing selector, **Standby** and **Manual power** are both implemented through
-the physical Passive mode. The physical Manual API mode remains available to the
-schedule services. Storage is a virtual mode controlled by the integration.
+the physical Passive mode. **Schedule** maps to the physical Manual API mode.
+Storage is a virtual mode controlled by the integration. Calling this service
+also disables automatic winter operation, just like selecting a mode in the UI.
+
+Every service call explicitly selects its Marstek configuration entry:
+
+```yaml
+action: hacs_marstek_api_connect.set_mode
+data:
+  config_entry_id: 01ABCDEF0123456789ABCDEF01
+  mode: Auto
+```
+
+The `config_entry_id` field is required on every integration service, so an
+automation remains deterministic when further batteries are added later.
 
 ### Configure a manual schedule
 
@@ -223,6 +295,9 @@ Constraints:
 - `power`: magnitude from 100 to 2500 W
 - `week_set`: day bitmask from 1 to 127
 
+Editing or clearing schedules does not change the persistent Operating Mode
+setpoint. Select **Schedule** explicitly when the stored schedules should run.
+
 Day bitmask values:
 
 | Day | Value |
@@ -238,19 +313,6 @@ Day bitmask values:
 | Weekend | 96 |
 | Every day | 127 |
 
-### Set passive mode
-
-Negative power charges the battery; positive power discharges it.
-
-```yaml
-action: hacs_marstek_api_connect.set_passive_mode
-data:
-  power: -500
-  cd_time: 3600
-```
-
-Set `cd_time` to `0` for an indefinite command.
-
 ### Clear manual schedules
 
 ```yaml
@@ -258,6 +320,10 @@ action: hacs_marstek_api_connect.clear_all_schedules
 ```
 
 This disables all ten schedule slots.
+
+The former `set_passive_mode` and `change_operating_mode` services were removed.
+Use the persistent Operating Mode selector or `set_mode`, the **Manual power**
+slider, and `set_manual_schedule` instead.
 
 ## Automation example
 
@@ -325,6 +391,15 @@ reference is available at
 Contributions are welcome. Keep changes focused and update the documentation when
 behavior changes. Integration source files are located in
 `custom_components/hacs_marstek_api_connect`.
+
+Run the Home Assistant-independent regression suite before submitting changes:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+GitHub Actions additionally runs the official HACS and Home Assistant hassfest
+validators on every push and pull request and once a week.
 
 ## License
 
