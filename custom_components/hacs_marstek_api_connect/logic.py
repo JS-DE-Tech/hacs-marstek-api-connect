@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from typing import Any
 
 
@@ -17,6 +17,15 @@ def normalize_ipv4(value: Any) -> Any:
     if any(number > 255 for number in numbers):
         return value
     return ".".join(str(number) for number in numbers)
+
+
+def time_in_window(current: time, start: time, end: time) -> bool:
+    """Return whether a local time is inside a possibly overnight window."""
+    if start == end:
+        return False
+    if start < end:
+        return start <= current < end
+    return current >= start or current < end
 
 
 def device_selection_options(
@@ -116,7 +125,8 @@ def normalized_battery_power(data: dict[str, Any] | None) -> float | None:
         power = float(value)
     except (TypeError, ValueError):
         return None
-    return -power if invert else power
+    normalized = -power if invert else power
+    return 0.0 if normalized == 0 else normalized
 
 
 def operation_status_from_power(
@@ -177,24 +187,34 @@ def automatic_storage_next_phase(
     *,
     solar_surplus: bool,
     cooldown_active: bool,
+    recharge_window_active: bool,
     solar_check_elapsed_seconds: float,
+    continuous_discharge_seconds: float,
     battery_average: float | None,
-    charge_start_soc: float,
     target_soc: float,
     charge_threshold_w: float,
     charge_exit_w: float,
     charge_confirmation_seconds: float,
     solar_check_max_seconds: float,
+    discharge_abort_seconds: float,
 ) -> str:
     """Return the next phase for automatic winter operation."""
-    if current_phase == "charging":
-        return "charging" if soc < target_soc else "holding"
-    if soc <= charge_start_soc:
-        return "charging"
+    def solar_fallback() -> str:
+        return "auto" if soc > target_soc else "holding"
+
+    # The configured night period guarantees 50% without using grid energy
+    # during the day. It takes priority if a solar test is still active.
+    if recharge_window_active and soc < target_soc:
+        return "recharging"
+    if current_phase in ("charging", "recharging"):
+        return "holding"
 
     if current_phase == "solar_check":
-        if soc < target_soc:
-            return "holding"
+        if (
+            not solar_surplus
+            or continuous_discharge_seconds >= discharge_abort_seconds
+        ):
+            return solar_fallback()
         if (
             solar_check_elapsed_seconds >= charge_confirmation_seconds
             and battery_average is not None
@@ -202,10 +222,15 @@ def automatic_storage_next_phase(
         ):
             return "solar_charging"
         if solar_check_elapsed_seconds >= solar_check_max_seconds:
-            return "auto" if soc > target_soc else "holding"
+            return solar_fallback()
         return "solar_check"
 
     if current_phase == "solar_charging":
+        if (
+            not solar_surplus
+            or continuous_discharge_seconds >= discharge_abort_seconds
+        ):
+            return solar_fallback()
         return solar_charging_next_phase(
             soc, battery_average, target_soc, charge_exit_w
         )
@@ -214,13 +239,20 @@ def automatic_storage_next_phase(
         if soc <= target_soc:
             return "holding"
         if (
-            battery_average is not None
+            solar_surplus
+            and battery_average is not None
             and battery_average > charge_threshold_w
         ):
             return "solar_charging"
         return "auto"
 
-    if current_phase == "holding" and solar_surplus and not cooldown_active:
+    if soc > target_soc:
+        return "auto"
+    if (
+        current_phase in (None, "holding")
+        and solar_surplus
+        and not cooldown_active
+    ):
         return "solar_check"
     return "holding"
 
@@ -229,7 +261,7 @@ def storage_phase_command(
     phase: str, charge_power: int
 ) -> tuple[str, int | None]:
     """Map a storage phase to its physical mode and optional Passive power."""
-    if phase == "charging":
+    if phase in ("charging", "recharging"):
         return "Passive", charge_power
     if phase == "holding":
         return "Passive", 0
@@ -281,10 +313,8 @@ def solar_charging_next_phase(
     phase. The resulting dead band keeps a battery power average hovering at
     the entry threshold from flipping the phase back and forth.
     """
-    if soc <= target_soc:
-        return "holding"
     if battery_average is not None and battery_average <= exit_power_w:
-        return "auto"
+        return "auto" if soc > target_soc else "holding"
     return "solar_charging"
 
 

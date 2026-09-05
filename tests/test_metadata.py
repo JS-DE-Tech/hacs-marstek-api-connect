@@ -34,7 +34,7 @@ class MetadataTests(unittest.TestCase):
         manifest = json.loads(
             (INTEGRATION / "manifest.json").read_text(encoding="utf-8")
         )
-        self.assertEqual("2.8.0", manifest["version"])
+        self.assertEqual("2.9.0", manifest["version"])
 
     def test_manifest_and_hacs_metadata_agree(self) -> None:
         manifest = json.loads(

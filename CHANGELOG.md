@@ -1,5 +1,31 @@
 # Changelog
 
+## [2.9.0] - 2026-09-05
+
+### Added
+- Configurable local-time period for automatic Storage recharge, defaulting to
+  22:00–05:00 and supporting periods across midnight.
+- Configurable number of consecutive observation days before automatic winter
+  operation enters Storage, defaulting to five days.
+- Separate `storage_recharging` / `Lagerung – Nachladen` status while the
+  automatic controller charges at 500 W inside that period.
+- Continuous 60-second battery-discharge protection for solar testing and
+  solar charging.
+
+### Changed
+- Automatic winter operation now waits for solar output below 50% during the
+  day and uses the 500 W fallback charge only inside the configured recharge
+  period.
+- Solar testing may continue below 50%. After a solar cycle, Auto discharges
+  energy above 50%, while lower states return to 0 W holding.
+- Every aborted solar cycle starts the existing ten-minute cooldown.
+
+### Fixed
+- Prevent rapid alternation between `storage_holding` and
+  `storage_solar_check` below 50%.
+- Normalize negative battery zero so Home Assistant reports `0 W` instead of
+  `-0 W`.
+
 ## [2.8.0] - 2026-08-19
 
 ### Breaking

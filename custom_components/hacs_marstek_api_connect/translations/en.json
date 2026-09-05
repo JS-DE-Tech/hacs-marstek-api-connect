@@ -59,7 +59,8 @@
           "configure_manual_mode": "Configure manual schedule",
           "configure_update_interval": "Configure update intervals",
           "configure_operating_modes": "Select available operating modes",
-          "configure_solar_surplus": "Configure solar output"
+          "configure_solar_surplus": "Configure solar output",
+          "configure_storage_recharge": "Configure storage recharge period"
         }
       },
       "configure_manual_mode": {
@@ -114,11 +115,26 @@
           "solar_surplus_on_minutes": "Turn-on period",
           "solar_surplus_off_minutes": "Turn-off period"
         }
+      },
+      "configure_storage_recharge": {
+        "title": "Configure storage recharge period",
+        "description": "Set the local-time period in which automatic winter operation may recharge a battery below 50% at 500 W. Periods across midnight are supported.",
+        "data": {
+          "storage_recharge_start": "Start time",
+          "storage_recharge_end": "End time",
+          "storage_observation_days": "Observation days before Storage starts"
+        },
+        "data_description": {
+          "storage_recharge_start": "The 500 W recharge may begin at this time.",
+          "storage_recharge_end": "At this time, an unfinished recharge stops and daytime solar control resumes.",
+          "storage_observation_days": "Number of consecutive valid days below 50% required before automatic winter operation enters Storage."
+        }
       }
     },
     "error": {
       "select_at_least_one_mode": "Select at least one operating mode.",
-      "solar_on_must_exceed_off": "The turn-on threshold must be higher than the turn-off threshold."
+      "solar_on_must_exceed_off": "The turn-on threshold must be higher than the turn-off threshold.",
+      "storage_recharge_times_must_differ": "The start and end time must be different."
     }
   },
   "selector": {
@@ -280,6 +296,7 @@
           "standby": "Standby",
           "mode_error": "Operating mode error",
           "storage_charging": "Storage – charging",
+          "storage_recharging": "Storage – recharging",
           "storage_holding": "Storage – holding",
           "storage_solar_check": "Storage – solar test",
           "storage_solar_charging": "Storage – solar charging",
@@ -293,6 +310,7 @@
           "observing": "Automatic – observing",
           "full_charge_detected": "Storage – full charge detected",
           "storage_charging": "Storage – charging",
+          "storage_recharging": "Storage – recharging",
           "storage_holding": "Storage – holding",
           "storage_solar_check": "Storage – solar test",
           "storage_solar_charging": "Storage – solar charging",

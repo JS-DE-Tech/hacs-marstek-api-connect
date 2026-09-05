@@ -97,23 +97,27 @@ storage without fixed calendar dates.
 
 1. While the battery is in Auto mode, the integration records the highest state
    of charge reached each calendar day.
-2. Storage mode starts after five consecutive valid days whose maximum state of
-   charge remained below 50%.
+2. Storage mode starts after the configured number of consecutive valid days
+   whose maximum state of charge remained below 50% (default: five days).
 3. A day is valid when at least 20 hours elapsed between its first and last
    observation. Missing or non-consecutive days reset the current sequence.
-4. At or below 45%, Storage charges at 500 W up to 50%; at 50% it uses a
-   renewed 0 W Passive command to hold the battery.
+4. During the day, a battery below 50% remains at a renewed 0 W Passive target
+   while the controller waits for usable solar output. Grid-assisted charging
+   is restricted to the configurable **Storage recharge period** (default:
+   22:00–05:00 local time), in which the battery is charged at 500 W up to 50%.
 5. A configured Home Assistant solar-power entity is evaluated with
    time-weighted moving averages. The default hysteresis detects surplus at a
    two-minute average of at least 1400 W and clears it at a five-minute average
    below 1000 W.
-6. Detected surplus starts a five-minute Auto-mode solar test. A two-minute
-   average Battery Power above +100 W confirms charging. Confirmed solar
-   charging ends once that average drops to 0 W or below, so a weak charge
-   between 0 W and +100 W cannot flip the phase back and forth.
-7. A failed solar test has a ten-minute cooldown. Auto may use stored energy down
-   to 50%, after which the battery returns to 0 W Passive holding.
-8. A full-charge day requires confirmed solar charging from 95% or below to at
+6. Detected surplus starts a five-minute Auto-mode solar test even when SOC is
+   below 50%. A two-minute average Battery Power above +100 W confirms charging.
+7. Solar testing or charging ends if solar output clears, charging stops, or the
+   battery continuously discharges by more than 100 W for 60 seconds. A stopped
+   solar cycle has a ten-minute cooldown before another test may start.
+8. After a solar cycle, every SOC above 50%—up to and including 100%—remains
+   in Auto and may use stored energy down to 50%; at 50% it returns to 0 W
+   Passive holding.
+9. A full-charge day requires confirmed solar charging from 95% or below to at
    least 99%. After two consecutive valid full-charge days, the controller
    returns to Auto observation and restarts the five-day counter.
 
@@ -127,20 +131,27 @@ unknown, unavailable, or has an unsupported unit, surplus is false and no new
 solar test starts. The solar entities remain informational outside automatic
 winter operation.
 
+Configure the nightly fallback under **Configure → Configure storage recharge
+period**. Start and end are interpreted in Home Assistant's local time and may
+span midnight. The same form configures the number of observation days before
+Storage starts. When both times are equal, the form rejects the configuration.
+
 The **Storage status** sensor reports one of these states, which Home Assistant
 shows in the user's language:
 
 - `disabled`
 - `observing`
 - `storage_charging`
+- `storage_recharging`
 - `storage_holding`
 - `storage_solar_check`
 - `storage_solar_charging`
 - `storage_discharging`
 - `full_charge_detected`
 
-The separate **Observation progress** sensor shows the current five-day
-observation counter as `0/5` through `5/5`. The detailed counters also remain
+The separate **Observation progress** sensor shows the current observation
+counter, for example `0/5` through `5/5` with the default setting. The detailed
+counters also remain
 available as attributes of **Storage status**: `low_soc_days`,
 `low_soc_days_required`, `full_soc_days`, `full_soc_days_required` and the
 internal `storage_phase`.

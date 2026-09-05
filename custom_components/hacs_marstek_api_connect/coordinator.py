@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -26,10 +26,15 @@ from .const import (
     CONF_SOLAR_SURPLUS_OFF_W,
     CONF_SOLAR_SURPLUS_ON_MINUTES,
     CONF_SOLAR_SURPLUS_ON_W,
+    CONF_STORAGE_RECHARGE_END,
+    CONF_STORAGE_RECHARGE_START,
+    CONF_STORAGE_OBSERVATION_DAYS,
     DEFAULT_SOLAR_SURPLUS_OFF_MINUTES,
     DEFAULT_SOLAR_SURPLUS_OFF_W,
     DEFAULT_SOLAR_SURPLUS_ON_MINUTES,
     DEFAULT_SOLAR_SURPLUS_ON_W,
+    DEFAULT_STORAGE_RECHARGE_END,
+    DEFAULT_STORAGE_RECHARGE_START,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_PORT,
     DOMAIN,
@@ -57,6 +62,8 @@ from .const import (
     SOLAR_CHARGE_CONFIRMATION_SECONDS,
     SOLAR_CHECK_COOLDOWN_SECONDS,
     SOLAR_CHECK_MAX_SECONDS,
+    SOLAR_DISCHARGE_ABORT_SECONDS,
+    SOLAR_DISCHARGE_THRESHOLD_W,
     STORAGE_FULL_CHARGE_ARM_SOC,
     STORAGE_FULL_CHARGE_SOC,
     STORAGE_VALID_DAY_HOURS,
@@ -75,11 +82,20 @@ from .logic import (
     storage_command_required,
     storage_phase_command,
     storage_phase_changes_command,
+    time_in_window,
     time_weighted_average,
 )
 from .udp_client import MarstekUDPClient
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _configured_time(value: Any, fallback: str) -> time:
+    """Parse a stored time selector value and safely fall back."""
+    try:
+        return time.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return time.fromisoformat(fallback)
 
 
 class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
@@ -196,11 +212,38 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 DEFAULT_SOLAR_SURPLUS_OFF_MINUTES,
             )
         )
+        self.storage_recharge_start = _configured_time(
+            entry.options.get(
+                CONF_STORAGE_RECHARGE_START,
+                DEFAULT_STORAGE_RECHARGE_START,
+            ),
+            DEFAULT_STORAGE_RECHARGE_START,
+        )
+        self.storage_recharge_end = _configured_time(
+            entry.options.get(
+                CONF_STORAGE_RECHARGE_END,
+                DEFAULT_STORAGE_RECHARGE_END,
+            ),
+            DEFAULT_STORAGE_RECHARGE_END,
+        )
+        self.storage_observation_days = max(
+            1,
+            min(
+                30,
+                int(
+                    entry.options.get(
+                        CONF_STORAGE_OBSERVATION_DAYS,
+                        STORAGE_OBSERVATION_DAYS,
+                    )
+                ),
+            ),
+        )
         self.solar_power: float | None = None
         self.solar_surplus = False
         self._solar_samples: deque[tuple[datetime, float]] = deque()
         self._battery_power_samples: deque[tuple[datetime, float]] = deque()
         self._solar_check_started: datetime | None = None
+        self._solar_discharge_started: datetime | None = None
         self._solar_check_cooldown_until: datetime | None = None
         self._storage_command_due: datetime | None = None
 
@@ -234,7 +277,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             self._low_soc_days = max(
                 0,
                 min(
-                    STORAGE_OBSERVATION_DAYS,
+                    self.storage_observation_days,
                     int(stored.get("low_soc_days", 0)),
                 ),
             )
@@ -530,9 +573,16 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         return {
             "storage_phase": self._storage_phase,
             "low_soc_days": self._low_soc_days,
-            "low_soc_days_required": STORAGE_OBSERVATION_DAYS,
+            "low_soc_days_required": self.storage_observation_days,
             "full_soc_days": full_soc_days,
             "full_soc_days_required": STORAGE_EXIT_FULL_CHARGE_DAYS,
+            "recharge_start": self.storage_recharge_start.isoformat(),
+            "recharge_end": self.storage_recharge_end.isoformat(),
+            "recharge_window_active": time_in_window(
+                dt_util.now().time(),
+                self.storage_recharge_start,
+                self.storage_recharge_end,
+            ),
         }
 
     @property
@@ -643,6 +693,8 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             return None
         if invert:
             value = -value
+        if value == 0:
+            value = 0.0
         append_sample(
             self._battery_power_samples,
             now,
@@ -665,13 +717,13 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             data = await self.client.get_energy_system_status()
             now = datetime.now()
             self._update_solar_measurement(now)
-            self._record_battery_power(data, now)
+            battery_power = self._record_battery_power(data, now)
 
             if self._automatic_controller_ready:
                 await self._async_update_automatic_storage(data.get("bat_soc"))
             if self.storage_mode_enabled:
                 await self._async_update_storage_mode(
-                    data.get("bat_soc"), now
+                    data.get("bat_soc"), now, battery_power
                 )
             
             # Get battery details only at the slower battery interval.
@@ -1190,6 +1242,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self.storage_mode_enabled = False
         self._storage_phase = None
         self._solar_check_started = None
+        self._solar_discharge_started = None
         self._solar_check_cooldown_until = None
         self._storage_command_due = None
         self._reset_mode_enforcement()
@@ -1222,6 +1275,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self.storage_mode_enabled = False
         self._storage_phase = None
         self._solar_check_started = None
+        self._solar_discharge_started = None
         self._solar_check_cooldown_until = None
         self._storage_command_due = None
         self._reset_mode_enforcement()
@@ -1282,6 +1336,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self._low_soc_days = 0
         self._full_soc_days = 0
         self._solar_check_started = None
+        self._solar_discharge_started = None
         self._solar_check_cooldown_until = None
         self._storage_command_due = None
         self._reset_mode_enforcement()
@@ -1325,7 +1380,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 self._low_soc_days += 1
             else:
                 self._low_soc_days = 0
-            if self._low_soc_days >= STORAGE_OBSERVATION_DAYS:
+            if self._low_soc_days >= self.storage_observation_days:
                 self._automatic_controller_state = "storage"
                 self.storage_mode_enabled = True
                 self._storage_phase = None
@@ -1385,6 +1440,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self,
         soc: Any,
         now: datetime | None = None,
+        battery_power: float | None = None,
     ) -> None:
         """Keep the battery near 50 percent and use verified solar output."""
         soc_value: float | None = None
@@ -1401,6 +1457,25 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             return
 
         now = now or datetime.now()
+        recharge_window_active = time_in_window(
+            dt_util.now().time(),
+            self.storage_recharge_start,
+            self.storage_recharge_end,
+        )
+        if (
+            self._storage_phase in ("solar_check", "solar_charging")
+            and battery_power is not None
+            and battery_power < -SOLAR_DISCHARGE_THRESHOLD_W
+        ):
+            if self._solar_discharge_started is None:
+                self._solar_discharge_started = now
+        else:
+            self._solar_discharge_started = None
+        continuous_discharge_seconds = (
+            (now - self._solar_discharge_started).total_seconds()
+            if self._solar_discharge_started is not None
+            else 0
+        )
         battery_average = time_weighted_average(
             self._battery_power_samples,
             now,
@@ -1413,7 +1488,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         if soc_value is None:
             next_phase = self._storage_phase
             assert next_phase is not None
-            solar_check_failed = False
+            solar_cycle_aborted = False
         elif not self.automatic_storage_enabled:
             next_phase = manual_storage_next_phase(
                 self._storage_phase,
@@ -1437,9 +1512,10 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 soc_value,
                 solar_surplus=self.solar_surplus,
                 cooldown_active=cooldown_active,
+                recharge_window_active=recharge_window_active,
                 solar_check_elapsed_seconds=elapsed_seconds,
+                continuous_discharge_seconds=continuous_discharge_seconds,
                 battery_average=battery_average,
-                charge_start_soc=STORAGE_CHARGE_START_SOC,
                 target_soc=STORAGE_TARGET_SOC,
                 charge_threshold_w=BATTERY_POWER_THRESHOLD_W,
                 charge_exit_w=SOLAR_CHARGING_EXIT_W,
@@ -1447,17 +1523,16 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                     SOLAR_CHARGE_CONFIRMATION_SECONDS
                 ),
                 solar_check_max_seconds=SOLAR_CHECK_MAX_SECONDS,
+                discharge_abort_seconds=SOLAR_DISCHARGE_ABORT_SECONDS,
             )
             if next_phase == "solar_charging":
                 self._tracking_had_solar_charge = True
-            solar_check_failed = (
-                self._storage_phase == "solar_check"
-                and next_phase != "solar_check"
-                and next_phase != "solar_charging"
-                and elapsed_seconds >= SOLAR_CHECK_MAX_SECONDS
+            solar_cycle_aborted = (
+                self._storage_phase in ("solar_check", "solar_charging")
+                and next_phase not in ("solar_check", "solar_charging")
             )
         if not self.automatic_storage_enabled:
-            solar_check_failed = False
+            solar_cycle_aborted = False
 
         previous_phase = self._storage_phase
         phase_changed = next_phase != previous_phase
@@ -1561,7 +1636,9 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 self._solar_check_started = now
             elif previous_phase == "solar_check":
                 self._solar_check_started = None
-            if solar_check_failed:
+            if next_phase not in ("solar_check", "solar_charging"):
+                self._solar_discharge_started = None
+            if solar_cycle_aborted:
                 self._solar_check_cooldown_until = now + timedelta(
                     seconds=SOLAR_CHECK_COOLDOWN_SECONDS
                 )

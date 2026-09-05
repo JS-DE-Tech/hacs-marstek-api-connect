@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from pathlib import Path
 import unittest
 
@@ -74,6 +74,14 @@ class DataNormalizationTests(unittest.TestCase):
         )
         self.assertTrue(all(set(option) == {"value", "label"} for option in options))
 
+    def test_time_window_supports_daytime_and_overnight_periods(self) -> None:
+        self.assertTrue(LOGIC.time_in_window(time(12), time(8), time(18)))
+        self.assertFalse(LOGIC.time_in_window(time(20), time(8), time(18)))
+        self.assertTrue(LOGIC.time_in_window(time(23), time(22), time(6)))
+        self.assertTrue(LOGIC.time_in_window(time(5, 59), time(22), time(6)))
+        self.assertFalse(LOGIC.time_in_window(time(6), time(22), time(6)))
+        self.assertFalse(LOGIC.time_in_window(time(12), time(12), time(12)))
+
     def test_time_weighted_average_requires_a_complete_window(self) -> None:
         now = datetime(2026, 1, 1, 12, 5)
         samples = deque([(now - timedelta(minutes=4), 1000.0)])
@@ -136,6 +144,10 @@ class DataNormalizationTests(unittest.TestCase):
         self.assertEqual(
             -400.0,
             LOGIC.normalized_battery_power({"ongrid_power": 400}),
+        )
+        self.assertEqual(
+            "0.0",
+            str(LOGIC.normalized_battery_power({"ongrid_power": 0.0})),
         )
         self.assertIsNone(
             LOGIC.normalized_battery_power({"bat_power": "invalid"})
@@ -215,7 +227,9 @@ class AutomaticStorageStateTests(unittest.TestCase):
         *,
         surplus: bool = False,
         cooldown: bool = False,
+        recharge: bool = False,
         elapsed: float = 0,
+        discharge_seconds: float = 0,
         battery_average: float | None = None,
     ) -> str:
         return LOGIC.automatic_storage_next_phase(
@@ -223,32 +237,43 @@ class AutomaticStorageStateTests(unittest.TestCase):
             soc,
             solar_surplus=surplus,
             cooldown_active=cooldown,
+            recharge_window_active=recharge,
             solar_check_elapsed_seconds=elapsed,
+            continuous_discharge_seconds=discharge_seconds,
             battery_average=battery_average,
-            charge_start_soc=45,
             target_soc=50,
             charge_threshold_w=ENTRY_W,
             charge_exit_w=EXIT_W,
             charge_confirmation_seconds=120,
             solar_check_max_seconds=300,
+            discharge_abort_seconds=60,
         )
 
-    def test_low_soc_charges_to_target(self) -> None:
-        self.assertEqual("charging", self.next_phase(None, 45))
-        self.assertEqual("charging", self.next_phase("charging", 49.9))
-        self.assertEqual("holding", self.next_phase("charging", 50))
-        self.assertEqual("charging", self.next_phase("auto", 44))
-        self.assertEqual("charging", self.next_phase("solar_charging", 44))
-        self.assertEqual("charging", self.next_phase("solar_check", 44))
+    def test_daytime_low_soc_waits_for_solar(self) -> None:
+        self.assertEqual("holding", self.next_phase(None, 44))
+        self.assertEqual("holding", self.next_phase("holding", 49.9))
+        self.assertEqual("holding", self.next_phase("charging", 44))
+
+    def test_recharge_window_charges_to_target(self) -> None:
+        self.assertEqual("recharging", self.next_phase(None, 49, recharge=True))
+        self.assertEqual(
+            "recharging", self.next_phase("recharging", 49.9, recharge=True)
+        )
+        self.assertEqual(
+            "holding", self.next_phase("recharging", 50, recharge=True)
+        )
+        self.assertEqual(
+            "holding", self.next_phase("recharging", 49, recharge=False)
+        )
 
     def test_surplus_starts_check_only_outside_cooldown(self) -> None:
         self.assertEqual(
-            "solar_check", self.next_phase("holding", 50, surplus=True)
+            "solar_check", self.next_phase("holding", 46, surplus=True)
         )
         self.assertEqual(
             "holding",
             self.next_phase(
-                "holding", 50, surplus=True, cooldown=True
+                "holding", 46, surplus=True, cooldown=True
             ),
         )
 
@@ -256,19 +281,31 @@ class AutomaticStorageStateTests(unittest.TestCase):
         self.assertEqual(
             "solar_check",
             self.next_phase(
-                "solar_check", 60, elapsed=119, battery_average=500
+                "solar_check",
+                46,
+                surplus=True,
+                elapsed=119,
+                battery_average=500,
             ),
         )
         self.assertEqual(
             "solar_check",
             self.next_phase(
-                "solar_check", 60, elapsed=120, battery_average=100
+                "solar_check",
+                46,
+                surplus=True,
+                elapsed=120,
+                battery_average=100,
             ),
         )
         self.assertEqual(
             "solar_charging",
             self.next_phase(
-                "solar_check", 60, elapsed=120, battery_average=101
+                "solar_check",
+                46,
+                surplus=True,
+                elapsed=120,
+                battery_average=101,
             ),
         )
 
@@ -276,30 +313,64 @@ class AutomaticStorageStateTests(unittest.TestCase):
         self.assertEqual(
             "auto",
             self.next_phase(
-                "solar_check", 60, elapsed=300, battery_average=0
+                "solar_check", 60, surplus=True, elapsed=300, battery_average=0
             ),
         )
         self.assertEqual(
             "holding",
             self.next_phase(
-                "solar_check", 50, elapsed=300, battery_average=0
+                "solar_check", 50, surplus=True, elapsed=300, battery_average=0
             ),
         )
+
+    def test_solar_cycle_aborts_after_continuous_discharge(self) -> None:
+        self.assertEqual(
+            "solar_check",
+            self.next_phase(
+                "solar_check", 46, surplus=True, discharge_seconds=59
+            ),
+        )
+        self.assertEqual(
+            "holding",
+            self.next_phase(
+                "solar_check", 46, surplus=True, discharge_seconds=60
+            ),
+        )
+        self.assertEqual(
+            "auto",
+            self.next_phase(
+                "solar_charging", 70, surplus=True, discharge_seconds=60
+            ),
+        )
+
+    def test_solar_output_loss_uses_soc_dependent_fallback(self) -> None:
+        self.assertEqual("holding", self.next_phase("solar_check", 46))
+        self.assertEqual("auto", self.next_phase("solar_charging", 70))
 
     def test_auto_returns_to_holding_and_detects_charge(self) -> None:
         self.assertEqual("holding", self.next_phase("auto", 50))
         self.assertEqual(
             "solar_charging",
-            self.next_phase("auto", 60, battery_average=101),
+            self.next_phase(
+                "auto", 60, surplus=True, battery_average=101
+            ),
         )
 
     def test_holding_ignores_surplus_during_cooldown(self) -> None:
         self.assertEqual(
             "holding",
             self.next_phase(
-                "holding", 60, surplus=True, cooldown=True
+                "holding", 50, surplus=True, cooldown=True
             ),
         )
+
+    def test_every_soc_above_target_uses_auto_until_50_percent(self) -> None:
+        for soc in (50.1, 51, 60, 70, 80, 90, 99, 100):
+            with self.subTest(soc=soc):
+                self.assertEqual("auto", self.next_phase(None, soc))
+                self.assertEqual("auto", self.next_phase("holding", soc))
+                self.assertEqual("auto", self.next_phase("auto", soc))
+        self.assertEqual("holding", self.next_phase("auto", 50))
 
 
 class StorageCommandTests(unittest.TestCase):
@@ -311,6 +382,10 @@ class StorageCommandTests(unittest.TestCase):
         )
         self.assertEqual(
             ("Passive", 0), LOGIC.storage_phase_command("holding", -500)
+        )
+        self.assertEqual(
+            ("Passive", -500),
+            LOGIC.storage_phase_command("recharging", -500),
         )
 
     def test_all_solar_phases_share_the_auto_command(self) -> None:
@@ -404,10 +479,16 @@ class SolarChargingStateTests(unittest.TestCase):
             LOGIC.solar_charging_next_phase(70, -200, 50, EXIT_W),
         )
 
-    def test_target_soc_changes_to_holding(self) -> None:
+    def test_positive_charge_continues_at_or_below_target_soc(self) -> None:
+        self.assertEqual(
+            "solar_charging",
+            LOGIC.solar_charging_next_phase(50, 500, 50, EXIT_W),
+        )
+
+    def test_stopped_charge_at_target_changes_to_holding(self) -> None:
         self.assertEqual(
             "holding",
-            LOGIC.solar_charging_next_phase(50, 500, 50, EXIT_W),
+            LOGIC.solar_charging_next_phase(50, 0, 50, EXIT_W),
         )
 
     def test_missing_average_does_not_end_charge_early(self) -> None:

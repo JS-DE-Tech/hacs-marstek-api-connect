@@ -51,6 +51,12 @@ SOLAR_CHECK_COOLDOWN_SECONDS: Final = 600
 SOLAR_CHARGE_CONFIRMATION_SECONDS: Final = 120
 BATTERY_POWER_AVERAGE_SECONDS: Final = 120
 BATTERY_POWER_THRESHOLD_W: Final = 100
+SOLAR_DISCHARGE_ABORT_SECONDS: Final = 60
+SOLAR_DISCHARGE_THRESHOLD_W: Final = 100
+
+# Configurable local-time window for the automatic 500 W storage recharge.
+DEFAULT_STORAGE_RECHARGE_START: Final = "22:00:00"
+DEFAULT_STORAGE_RECHARGE_END: Final = "05:00:00"
 
 # Solar-charging hysteresis. The phase is entered once the battery power
 # average rises above BATTERY_POWER_THRESHOLD_W and is only left once charging
@@ -69,6 +75,7 @@ STORAGE_FULL_CHARGE_SOC: Final = 99
 # Internal storage phase to translated sensor state
 STORAGE_PHASE_STATES: Final = {
     "charging": "storage_charging",
+    "recharging": "storage_recharging",
     "holding": "storage_holding",
     "solar_check": "storage_solar_check",
     "solar_charging": "storage_solar_charging",
@@ -496,3 +503,6 @@ CONF_SOLAR_SURPLUS_ON_W: Final = "solar_surplus_on_w"
 CONF_SOLAR_SURPLUS_OFF_W: Final = "solar_surplus_off_w"
 CONF_SOLAR_SURPLUS_ON_MINUTES: Final = "solar_surplus_on_minutes"
 CONF_SOLAR_SURPLUS_OFF_MINUTES: Final = "solar_surplus_off_minutes"
+CONF_STORAGE_RECHARGE_START: Final = "storage_recharge_start"
+CONF_STORAGE_RECHARGE_END: Final = "storage_recharge_end"
+CONF_STORAGE_OBSERVATION_DAYS: Final = "storage_observation_days"

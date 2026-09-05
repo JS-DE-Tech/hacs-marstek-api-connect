@@ -23,16 +23,22 @@ from .const import (
     CONF_SOLAR_SURPLUS_OFF_W,
     CONF_SOLAR_SURPLUS_ON_MINUTES,
     CONF_SOLAR_SURPLUS_ON_W,
+    CONF_STORAGE_RECHARGE_END,
+    CONF_STORAGE_RECHARGE_START,
+    CONF_STORAGE_OBSERVATION_DAYS,
     DEFAULT_SOLAR_SURPLUS_OFF_MINUTES,
     DEFAULT_SOLAR_SURPLUS_OFF_W,
     DEFAULT_SOLAR_SURPLUS_ON_MINUTES,
     DEFAULT_SOLAR_SURPLUS_ON_W,
+    DEFAULT_STORAGE_RECHARGE_END,
+    DEFAULT_STORAGE_RECHARGE_START,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     MODE_MANUAL,
     MODE_STANDBY,
     SELECTABLE_MODES,
+    STORAGE_OBSERVATION_DAYS,
 )
 from .logic import (
     device_selection_options,
@@ -373,7 +379,63 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
                 "configure_update_interval",
                 "configure_operating_modes",
                 "configure_solar_surplus",
+                "configure_storage_recharge",
             ],
+        )
+
+    async def async_step_configure_storage_recharge(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure the local-time period for automatic storage recharge."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if (
+                user_input[CONF_STORAGE_RECHARGE_START]
+                == user_input[CONF_STORAGE_RECHARGE_END]
+            ):
+                errors["base"] = "storage_recharge_times_must_differ"
+            else:
+                new_options = {**self._config_entry.options, **user_input}
+                return self.async_create_entry(title="", data=new_options)
+
+        options = self._config_entry.options
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_STORAGE_RECHARGE_START,
+                    default=options.get(
+                        CONF_STORAGE_RECHARGE_START,
+                        DEFAULT_STORAGE_RECHARGE_START,
+                    ),
+                ): selector.TimeSelector(),
+                vol.Required(
+                    CONF_STORAGE_RECHARGE_END,
+                    default=options.get(
+                        CONF_STORAGE_RECHARGE_END,
+                        DEFAULT_STORAGE_RECHARGE_END,
+                    ),
+                ): selector.TimeSelector(),
+                vol.Required(
+                    CONF_STORAGE_OBSERVATION_DAYS,
+                    default=options.get(
+                        CONF_STORAGE_OBSERVATION_DAYS,
+                        STORAGE_OBSERVATION_DAYS,
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1,
+                        max=30,
+                        step=1,
+                        unit_of_measurement="d",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id="configure_storage_recharge",
+            data_schema=schema,
+            errors=errors,
         )
 
     async def async_step_configure_solar_surplus(

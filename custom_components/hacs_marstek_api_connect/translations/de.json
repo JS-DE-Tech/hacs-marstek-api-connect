@@ -59,7 +59,8 @@
           "configure_manual_mode": "Manuellen Zeitplan konfigurieren",
           "configure_update_interval": "Aktualisierungsintervalle einstellen",
           "configure_operating_modes": "Verfügbare Betriebsmodi auswählen",
-          "configure_solar_surplus": "Solarausgabe konfigurieren"
+          "configure_solar_surplus": "Solarausgabe konfigurieren",
+          "configure_storage_recharge": "Zeitraum Lagerung – Nachladen konfigurieren"
         }
       },
       "configure_manual_mode": {
@@ -114,11 +115,26 @@
           "solar_surplus_on_minutes": "Einschaltdauer",
           "solar_surplus_off_minutes": "Ausschaltdauer"
         }
+      },
+      "configure_storage_recharge": {
+        "title": "Zeitraum Lagerung – Nachladen konfigurieren",
+        "description": "Lege den Zeitraum in lokaler Zeit fest, in dem der automatische Winterbetrieb einen Akku unter 50 % mit 500 W nachladen darf. Zeiträume über Mitternacht werden unterstützt.",
+        "data": {
+          "storage_recharge_start": "Startzeit",
+          "storage_recharge_end": "Endzeit",
+          "storage_observation_days": "Prüftage bis zum Beginn des Winterbetriebs"
+        },
+        "data_description": {
+          "storage_recharge_start": "Ab dieser Uhrzeit darf die Nachladung mit 500 W beginnen.",
+          "storage_recharge_end": "Zu dieser Uhrzeit endet eine noch laufende Nachladung und die Solarsteuerung für den Tag wird fortgesetzt.",
+          "storage_observation_days": "Anzahl aufeinanderfolgender gültiger Tage unter 50 %, nach denen der automatische Winterbetrieb die Lagerung startet."
+        }
       }
     },
     "error": {
       "select_at_least_one_mode": "Wähle mindestens einen Betriebsmodus aus.",
-      "solar_on_must_exceed_off": "Die Einschaltgrenze muss über der Ausschaltgrenze liegen."
+      "solar_on_must_exceed_off": "Die Einschaltgrenze muss über der Ausschaltgrenze liegen.",
+      "storage_recharge_times_must_differ": "Start- und Endzeit müssen unterschiedlich sein."
     }
   },
   "selector": {
@@ -280,6 +296,7 @@
           "standby": "Standby",
           "mode_error": "Fehler Betriebsmodus",
           "storage_charging": "Lagerung – Laden",
+          "storage_recharging": "Lagerung – Nachladen",
           "storage_holding": "Lagerung – Halten",
           "storage_solar_check": "Lagerung – Solarprüfung",
           "storage_solar_charging": "Lagerung – Solarladen",
@@ -293,6 +310,7 @@
           "observing": "Automatik – Beobachtung",
           "full_charge_detected": "Lagerung – Vollladung erkannt",
           "storage_charging": "Lagerung – Laden",
+          "storage_recharging": "Lagerung – Nachladen",
           "storage_holding": "Lagerung – Halten",
           "storage_solar_check": "Lagerung – Solarprüfung",
           "storage_solar_charging": "Lagerung – Solarladen",
