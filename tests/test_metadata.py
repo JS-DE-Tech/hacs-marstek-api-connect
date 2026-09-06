@@ -34,7 +34,7 @@ class MetadataTests(unittest.TestCase):
         manifest = json.loads(
             (INTEGRATION / "manifest.json").read_text(encoding="utf-8")
         )
-        self.assertEqual("2.9.0", manifest["version"])
+        self.assertEqual("2.10.0", manifest["version"])
 
     def test_manifest_and_hacs_metadata_agree(self) -> None:
         manifest = json.loads(
@@ -212,6 +212,7 @@ class MetadataTests(unittest.TestCase):
     def test_selector_options_are_fully_translated(self) -> None:
         """Every selector value displayed by a form needs a translation."""
         expected = {
+            "solar_start_source": {"solar", "ct"},
             "device_selection": {"retry_discovery", "manual"},
             "operating_mode_options": {
                 mode.lower() for mode in CONST.SELECTABLE_MODES

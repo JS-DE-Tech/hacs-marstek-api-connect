@@ -59,7 +59,7 @@
           "configure_manual_mode": "Manuellen Zeitplan konfigurieren",
           "configure_update_interval": "Aktualisierungsintervalle einstellen",
           "configure_operating_modes": "Verfügbare Betriebsmodi auswählen",
-          "configure_solar_surplus": "Solarausgabe konfigurieren",
+          "configure_solar_surplus": "Lade- und Entladeregelung konfigurieren",
           "configure_storage_recharge": "Zeitraum Lagerung – Nachladen konfigurieren"
         }
       },
@@ -106,35 +106,47 @@
         }
       },
       "configure_solar_surplus": {
-        "title": "Solarausgabe konfigurieren",
-        "description": "Wähle den Home-Assistant-Leistungssensor für den automatischen Winterbetrieb und konfiguriere die zeitgewichteten Grenzwerte.",
+        "title": "Lade- und Entladeregelung konfigurieren",
+        "description": "Wähle, ob die Lade- und Entladeregelung anhand der Solarleistung oder der Einspeisung am CT-Zähler startet. Im CT-Modus gelten die Mindesteinspeisung und die Mittelungszeit für den Start; ein Solarsensor ist dafür nicht erforderlich. Die Solar-Grenzwerte gelten nur im Modus Solarleistung. Nach dem Start überwacht die vorhandene Akkuleistungsprüfung den Ladebetrieb.",
         "data": {
           "solar_power_entity": "Solarleistungs-Entität",
-          "solar_surplus_on_w": "Solarausgabe aktiv ab",
-          "solar_surplus_off_w": "Solarausgabe endet unter",
-          "solar_surplus_on_minutes": "Einschaltdauer",
-          "solar_surplus_off_minutes": "Ausschaltdauer"
+          "solar_surplus_on_w": "Regelung starten ab (Solarleistung)",
+          "solar_surplus_off_w": "Regelung beenden unter (Solarleistung)",
+          "solar_surplus_on_minutes": "Mittelungszeit für den Start (Solarleistung)",
+          "solar_surplus_off_minutes": "Mittelungszeit für das Ende (Solarleistung)",
+          "solar_start_source": "Solarladen starten anhand von",
+          "ct_export_start_w": "Mindesteinspeisung zum Start",
+          "ct_start_minutes": "Mittelungszeit für den Start"
+        },
+        "data_description": {
+          "ct_export_start_w": "Nur CT-Modus: positiver Einspeisewert; 100 W entsprechen einer CT-Gesamtleistung von −100 W.",
+          "ct_start_minutes": "Nur CT-Modus: Solarladen startet, wenn die zeitgewichtete durchschnittliche Einspeisung über den vollständigen Zeitraum mindestens den eingestellten Wert erreicht. Netzbezug wird mitgerechnet."
         }
       },
       "configure_storage_recharge": {
         "title": "Zeitraum Lagerung – Nachladen konfigurieren",
-        "description": "Lege den Zeitraum in lokaler Zeit fest, in dem der automatische Winterbetrieb einen Akku unter 50 % mit 500 W nachladen darf. Zeiträume über Mitternacht werden unterstützt.",
+        "description": "Lege den Zeitraum in lokaler Zeit und die Ladegrenzen für das Nachladen mit 500 W im automatischen Winterbetrieb fest. Die Nachladung startet bei oder unter dem Startwert und endet bei oder über dem Stoppwert, spätestens aber zur Endzeit. Zeiträume über Mitternacht werden unterstützt.",
         "data": {
           "storage_recharge_start": "Startzeit",
           "storage_recharge_end": "Endzeit",
-          "storage_observation_days": "Prüftage bis zum Beginn des Winterbetriebs"
+          "storage_observation_days": "Prüftage bis zum Beginn des Winterbetriebs",
+          "storage_recharge_start_soc": "Nachladen starten bei",
+          "storage_recharge_stop_soc": "Nachladen stoppen bei"
         },
         "data_description": {
           "storage_recharge_start": "Ab dieser Uhrzeit darf die Nachladung mit 500 W beginnen.",
           "storage_recharge_end": "Zu dieser Uhrzeit endet eine noch laufende Nachladung und die Solarsteuerung für den Tag wird fortgesetzt.",
-          "storage_observation_days": "Anzahl aufeinanderfolgender gültiger Tage unter 50 %, nach denen der automatische Winterbetrieb die Lagerung startet."
+          "storage_observation_days": "Anzahl aufeinanderfolgender gültiger Tage unter 50 %, nach denen der automatische Winterbetrieb die Lagerung startet.",
+          "storage_recharge_start_soc": "Start bei ≤ diesem Ladestand, nur innerhalb des Zeitfensters. Standard: 45 %.",
+          "storage_recharge_stop_soc": "Stopp bei ≥ diesem Ladestand. Muss größer als der Startwert sein. Standard: 50 %. Dieser Wert ist zugleich die Reserve im automatischen Winterbetrieb."
         }
       }
     },
     "error": {
       "select_at_least_one_mode": "Wähle mindestens einen Betriebsmodus aus.",
       "solar_on_must_exceed_off": "Die Einschaltgrenze muss über der Ausschaltgrenze liegen.",
-      "storage_recharge_times_must_differ": "Start- und Endzeit müssen unterschiedlich sein."
+      "storage_recharge_times_must_differ": "Start- und Endzeit müssen unterschiedlich sein.",
+      "storage_recharge_invalid_soc": "Der Startwert muss kleiner als der Stoppwert sein."
     }
   },
   "selector": {
@@ -169,6 +181,12 @@
       "options": {
         "charging": "Laden",
         "discharging": "Entladen"
+      }
+    },
+    "solar_start_source": {
+      "options": {
+        "solar": "Solarleistung",
+        "ct": "Netzüberschuss (CT)"
       }
     }
   },

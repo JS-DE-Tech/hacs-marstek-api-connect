@@ -22,6 +22,13 @@ from .const import (
     CONF_MODE_SCAN_INTERVAL,
     CONF_PORT,
     CONF_SOLAR_POWER_ENTITY,
+    CONF_SOLAR_START_SOURCE,
+    CONF_STORAGE_RECHARGE_START_SOC,
+    CONF_STORAGE_RECHARGE_STOP_SOC,
+    CONF_CT_EXPORT_START_W,
+    CONF_CT_START_MINUTES,
+    DEFAULT_CT_EXPORT_START_W,
+    DEFAULT_CT_START_MINUTES,
     CONF_SOLAR_SURPLUS_OFF_MINUTES,
     CONF_SOLAR_SURPLUS_OFF_W,
     CONF_SOLAR_SURPLUS_ON_MINUTES,
@@ -86,6 +93,7 @@ from .logic import (
     time_weighted_average,
 )
 from .udp_client import MarstekUDPClient
+from .logic import CTExportStart
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -190,6 +198,16 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             hass, 1, f"{DOMAIN}.{entry.entry_id}.diagnostics"
         )
         self.solar_power_entity = entry.options.get(CONF_SOLAR_POWER_ENTITY)
+        self.solar_start_source = entry.options.get(CONF_SOLAR_START_SOURCE, "solar")
+        self.storage_recharge_start_soc = float(entry.options.get(
+            CONF_STORAGE_RECHARGE_START_SOC, STORAGE_CHARGE_START_SOC))
+        self.storage_recharge_stop_soc = float(entry.options.get(
+            CONF_STORAGE_RECHARGE_STOP_SOC, STORAGE_TARGET_SOC))
+        self.ct_export_start_w = float(entry.options.get(
+            CONF_CT_EXPORT_START_W, DEFAULT_CT_EXPORT_START_W))
+        self.ct_start_minutes = int(entry.options.get(
+            CONF_CT_START_MINUTES, DEFAULT_CT_START_MINUTES))
+        self._ct_export_start = CTExportStart()
         self.solar_surplus_on_w = float(
             entry.options.get(
                 CONF_SOLAR_SURPLUS_ON_W, DEFAULT_SOLAR_SURPLUS_ON_W
@@ -577,6 +595,8 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             "full_soc_days": full_soc_days,
             "full_soc_days_required": STORAGE_EXIT_FULL_CHARGE_DAYS,
             "recharge_start": self.storage_recharge_start.isoformat(),
+            "recharge_start_soc": self.storage_recharge_start_soc,
+            "recharge_stop_soc": self.storage_recharge_stop_soc,
             "recharge_end": self.storage_recharge_end.isoformat(),
             "recharge_window_active": time_in_window(
                 dt_util.now().time(),
@@ -718,6 +738,20 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             now = datetime.now()
             self._update_solar_measurement(now)
             battery_power = self._record_battery_power(data, now)
+            if self.solar_start_source == "ct":
+                ct_power = None
+                phase = self._storage_phase if self.storage_mode_enabled else None
+                if phase == "holding" and battery_power is not None and abs(battery_power) <= 10:
+                    try:
+                        meter = await self.client.get_energy_meter_status()
+                        ct_power = meter.get("total_power") if meter else None
+                    except Exception as err:
+                        _LOGGER.debug("CT start measurement unavailable: %s", err)
+                self.solar_surplus = self._ct_export_start.update(
+                    datetime.now(), ct_power, phase,
+                    self.ct_export_start_w, self.ct_start_minutes,
+                    max(90, self.update_interval.total_seconds() * 2),
+                )
 
             if self._automatic_controller_ready:
                 await self._async_update_automatic_storage(data.get("bat_soc"))
@@ -866,6 +900,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             return data
         except Exception as err:
             _LOGGER.error("Failed to get device data: %s", err)
+            self._ct_export_start.samples.clear()
             raise UpdateFailed(f"Failed to update data: {err}")
 
     async def _async_enforce_operating_mode(self) -> None:
@@ -1122,7 +1157,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             add("mode_dropouts_24h", "ok", "No incidents")
 
         # Solar sensor used by the automatic winter controller.
-        if self.solar_power_entity:
+        if self.solar_power_entity and self.solar_start_source == "solar":
             if self._solar_sensor_problem:
                 add("solar_sensor", "warning", self._solar_sensor_problem)
             else:
@@ -1131,7 +1166,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                     "ok",
                     f"{self.solar_power_entity} provides data",
                 )
-        elif self.automatic_storage_enabled:
+        elif self.automatic_storage_enabled and self.solar_start_source == "solar":
             add(
                 "solar_sensor",
                 "warning",
@@ -1513,10 +1548,12 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 solar_surplus=self.solar_surplus,
                 cooldown_active=cooldown_active,
                 recharge_window_active=recharge_window_active,
+                recharge_start_soc=self.storage_recharge_start_soc,
+                recharge_stop_soc=self.storage_recharge_stop_soc,
                 solar_check_elapsed_seconds=elapsed_seconds,
                 continuous_discharge_seconds=continuous_discharge_seconds,
                 battery_average=battery_average,
-                target_soc=STORAGE_TARGET_SOC,
+                target_soc=self.storage_recharge_stop_soc,
                 charge_threshold_w=BATTERY_POWER_THRESHOLD_W,
                 charge_exit_w=SOLAR_CHARGING_EXIT_W,
                 charge_confirmation_seconds=(

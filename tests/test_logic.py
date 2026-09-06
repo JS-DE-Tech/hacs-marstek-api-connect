@@ -231,6 +231,8 @@ class AutomaticStorageStateTests(unittest.TestCase):
         elapsed: float = 0,
         discharge_seconds: float = 0,
         battery_average: float | None = None,
+        recharge_start: float = 45,
+        recharge_stop: float = 50,
     ) -> str:
         return LOGIC.automatic_storage_next_phase(
             current,
@@ -238,10 +240,12 @@ class AutomaticStorageStateTests(unittest.TestCase):
             solar_surplus=surplus,
             cooldown_active=cooldown,
             recharge_window_active=recharge,
+            recharge_start_soc=recharge_start,
+            recharge_stop_soc=recharge_stop,
             solar_check_elapsed_seconds=elapsed,
             continuous_discharge_seconds=discharge_seconds,
             battery_average=battery_average,
-            target_soc=50,
+            target_soc=recharge_stop,
             charge_threshold_w=ENTRY_W,
             charge_exit_w=EXIT_W,
             charge_confirmation_seconds=120,
@@ -255,7 +259,7 @@ class AutomaticStorageStateTests(unittest.TestCase):
         self.assertEqual("holding", self.next_phase("charging", 44))
 
     def test_recharge_window_charges_to_target(self) -> None:
-        self.assertEqual("recharging", self.next_phase(None, 49, recharge=True))
+        self.assertEqual("recharging", self.next_phase(None, 45, recharge=True))
         self.assertEqual(
             "recharging", self.next_phase("recharging", 49.9, recharge=True)
         )
@@ -265,6 +269,24 @@ class AutomaticStorageStateTests(unittest.TestCase):
         self.assertEqual(
             "holding", self.next_phase("recharging", 49, recharge=False)
         )
+
+    def test_recharge_dead_band_does_not_restart(self):
+        for soc in (45.1, 49, 50):
+            self.assertEqual("holding", self.next_phase("holding", soc, recharge=True))
+
+    def test_custom_recharge_thresholds_and_window_end(self):
+        settings = dict(recharge=True, recharge_start=35, recharge_stop=48)
+        self.assertEqual("recharging", self.next_phase("holding", 35, **settings))
+        self.assertEqual("holding", self.next_phase("holding", 36, **settings))
+        self.assertEqual("recharging", self.next_phase("recharging", 47.9, **settings))
+        self.assertEqual("holding", self.next_phase("recharging", 48, **settings))
+        self.assertEqual("holding", self.next_phase("recharging", 30, recharge=False))
+
+    def test_custom_reserve_does_not_discharge_into_recharge_threshold(self):
+        self.assertEqual("holding", self.next_phase("holding", 58,
+            recharge=True, recharge_start=55, recharge_stop=60))
+        self.assertEqual("holding", self.next_phase("auto", 60,
+            recharge_start=55, recharge_stop=60))
 
     def test_surplus_starts_check_only_outside_cooldown(self) -> None:
         self.assertEqual(
@@ -548,6 +570,55 @@ class OperatingModeTests(unittest.TestCase):
         self.assertTrue(
             LOGIC.mode_feedback_confirmed("Standby", "Passive", 3)
         )
+
+
+
+class CTExportStartTests(unittest.TestCase):
+    def setUp(self):
+        self.control = LOGIC.CTExportStart()
+        self.start = datetime(2026, 9, 6, 12)
+
+    def sample(self, seconds, power, phase='holding'):
+        return self.control.update(self.start + timedelta(seconds=seconds), power, phase, 100, 2, 90)
+
+    def test_full_window_and_exact_threshold(self):
+        self.assertFalse(self.sample(0, -100))
+        self.assertFalse(self.sample(60, -100))
+        self.assertFalse(self.sample(119, -100))
+        self.assertTrue(self.sample(120, -100))
+
+    def test_import_is_time_weighted(self):
+        self.sample(0, -400)
+        self.sample(60, -400)
+        self.sample(90, 100)
+        self.assertTrue(self.sample(120, 100))  # -275 W average
+
+    def test_majority_export_does_not_hide_large_import(self):
+        self.sample(0, -100)
+        self.sample(60, -100)
+        self.sample(90, 1000)
+        self.assertFalse(self.sample(120, 1000))
+
+    def test_invalid_readings_restart_full_window(self):
+        for invalid in (None, float('nan'), float('inf'), 'unavailable'):
+            self.control = LOGIC.CTExportStart()
+            self.sample(0, -500)
+            self.assertFalse(self.sample(60, invalid))
+            self.assertFalse(self.sample(120, -500))
+
+    def test_gap_restarts_window(self):
+        self.sample(0, -500)
+        self.assertFalse(self.sample(120, -500))
+
+    def test_active_cycle_does_not_stop_at_zero_ct(self):
+        self.sample(0, -500)
+        self.assertTrue(self.sample(60, 0, 'solar_check'))
+        self.assertTrue(self.sample(120, 0, 'solar_charging'))
+        self.assertFalse(self.sample(180, -500))
+
+    def test_other_phases_cannot_trigger_ct_start(self):
+        for phase in (None, 'auto', 'recharging'):
+            self.assertFalse(self.sample(0, -500, phase))
 
 
 if __name__ == "__main__":

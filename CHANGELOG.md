@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.10.0] - 2026-09-06
+
+### Added
+- CT grid-export start selection with a default 100 W minimum export and a full
+  two-minute time-weighted averaging window, including periods of grid import.
+- Configurable automatic recharge start/stop SOC (defaults: 45% / 50%) with
+  validation and hysteresis; recharge always stops when the time window ends.
+
+### Changed
+- Clarify charging/discharging configuration labels and averaging descriptions.
+- Preserve existing solar-power mode for existing configurations and battery-power
+  supervision after a CT-triggered start.
+
 ## [2.9.0] - 2026-09-05
 
 ### Added

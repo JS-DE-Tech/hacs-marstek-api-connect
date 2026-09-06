@@ -59,7 +59,7 @@
           "configure_manual_mode": "Configure manual schedule",
           "configure_update_interval": "Configure update intervals",
           "configure_operating_modes": "Select available operating modes",
-          "configure_solar_surplus": "Configure solar output",
+          "configure_solar_surplus": "Configure charging and discharging control",
           "configure_storage_recharge": "Configure storage recharge period"
         }
       },
@@ -106,35 +106,47 @@
         }
       },
       "configure_solar_surplus": {
-        "title": "Configure solar output",
-        "description": "Select the Home Assistant power sensor used by automatic winter operation and configure its time-weighted thresholds.",
+        "title": "Configure charging and discharging control",
+        "description": "Choose whether solar power or CT grid export starts charging and discharging control. CT mode uses minimum export and start averaging time and does not require a solar sensor. Solar thresholds apply only to solar-power mode. Existing battery-power checks supervise operation after starting.",
         "data": {
           "solar_power_entity": "Solar power entity",
-          "solar_surplus_on_w": "Solar output active above",
-          "solar_surplus_off_w": "Solar output ends below",
-          "solar_surplus_on_minutes": "Turn-on period",
-          "solar_surplus_off_minutes": "Turn-off period"
+          "solar_surplus_on_w": "Start control above (solar power)",
+          "solar_surplus_off_w": "End control below (solar power)",
+          "solar_surplus_on_minutes": "Start averaging time (solar power)",
+          "solar_surplus_off_minutes": "Stop averaging time (solar power)",
+          "solar_start_source": "Start solar charging based on",
+          "ct_export_start_w": "Minimum export to start",
+          "ct_start_minutes": "Start averaging time"
+        },
+        "data_description": {
+          "ct_export_start_w": "CT mode only: positive export magnitude; 100 W corresponds to CT total power of −100 W.",
+          "ct_start_minutes": "CT mode only: start once time-weighted average export over the full interval reaches the threshold. Grid import is included."
         }
       },
       "configure_storage_recharge": {
         "title": "Configure storage recharge period",
-        "description": "Set the local-time period in which automatic winter operation may recharge a battery below 50% at 500 W. Periods across midnight are supported.",
+        "description": "Set the local-time window and charge thresholds for 500 W recharging in automatic winter mode. Recharging starts at or below the start threshold and stops at or above the stop threshold, or when the time window ends. Overnight windows are supported.",
         "data": {
           "storage_recharge_start": "Start time",
           "storage_recharge_end": "End time",
-          "storage_observation_days": "Observation days before Storage starts"
+          "storage_observation_days": "Observation days before Storage starts",
+          "storage_recharge_start_soc": "Start recharging at",
+          "storage_recharge_stop_soc": "Stop recharging at"
         },
         "data_description": {
           "storage_recharge_start": "The 500 W recharge may begin at this time.",
           "storage_recharge_end": "At this time, an unfinished recharge stops and daytime solar control resumes.",
-          "storage_observation_days": "Number of consecutive valid days below 50% required before automatic winter operation enters Storage."
+          "storage_observation_days": "Number of consecutive valid days below 50% required before automatic winter operation enters Storage.",
+          "storage_recharge_start_soc": "Start at or below this state of charge, only inside the time window. Default: 45%.",
+          "storage_recharge_stop_soc": "Stop at or above this state of charge. Must exceed the start threshold. Default: 50%. This is also the automatic winter reserve."
         }
       }
     },
     "error": {
       "select_at_least_one_mode": "Select at least one operating mode.",
       "solar_on_must_exceed_off": "The turn-on threshold must be higher than the turn-off threshold.",
-      "storage_recharge_times_must_differ": "The start and end time must be different."
+      "storage_recharge_times_must_differ": "The start and end time must be different.",
+      "storage_recharge_invalid_soc": "The start threshold must be lower than the stop threshold."
     }
   },
   "selector": {
@@ -169,6 +181,12 @@
       "options": {
         "charging": "Charging",
         "discharging": "Discharging"
+      }
+    },
+    "solar_start_source": {
+      "options": {
+        "solar": "Solar power",
+        "ct": "Grid export (CT)"
       }
     }
   },

@@ -104,7 +104,10 @@ storage without fixed calendar dates.
 4. During the day, a battery below 50% remains at a renewed 0 W Passive target
    while the controller waits for usable solar output. Grid-assisted charging
    is restricted to the configurable **Storage recharge period** (default:
-   22:00–05:00 local time), in which the battery is charged at 500 W up to 50%.
+   22:00–05:00 local time), in which recharging starts at or below 45% and continues at 500 W until 50%.
+   Both recharge thresholds are configurable; start must be lower than stop.
+   Recharging stops at the end of the window even if the stop SOC is not reached.
+   These settings apply to automatic recharge; the automatic winter reserve follows the stop threshold.
 5. A configured Home Assistant solar-power entity is evaluated with
    time-weighted moving averages. The default hysteresis detects surplus at a
    two-minute average of at least 1400 W and clears it at a five-minute average
@@ -425,3 +428,19 @@ Copyright © 2026 Jens Saffrich (JS TechSector).
 
 This is an unofficial integration and is not affiliated with or endorsed by
 Marstek. Use it at your own risk.
+
+### Starting solar control from CT grid export
+
+In the solar-control options, choose **Grid export (CT)** as the start source.
+The defaults are **100 W minimum export** and a **2-minute start averaging time**.
+A complete time-weighted CT average of **-100 W or lower** starts the existing
+solar-check phase from Storage holding; periods of grid import count against export.
+Only fresh meter readings while the battery is idle (within 10 W) are collected.
+Invalid readings and polling gaps restart the observation window. The solar-power
+sensor and solar thresholds are not needed for CT start mode. Existing installations
+continue using solar-power mode until the source is changed.
+
+Once started, CT approaching zero does not end the cycle: existing battery-power
+confirmation, discharge protection, recharge-window priority and retry cooldown
+remain in effect. The CT option changes the start trigger, not the device's Auto
+mode behavior. Confirm behavior with the actual meter and battery after installation.

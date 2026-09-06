@@ -19,6 +19,15 @@ from .const import (
     CONF_MODE_SCAN_INTERVAL,
     CONF_ENABLED_MODES,
     CONF_SOLAR_POWER_ENTITY,
+    CONF_SOLAR_START_SOURCE,
+    CONF_STORAGE_RECHARGE_START_SOC,
+    CONF_STORAGE_RECHARGE_STOP_SOC,
+    STORAGE_CHARGE_START_SOC,
+    STORAGE_TARGET_SOC,
+    CONF_CT_EXPORT_START_W,
+    CONF_CT_START_MINUTES,
+    DEFAULT_CT_EXPORT_START_W,
+    DEFAULT_CT_START_MINUTES,
     CONF_SOLAR_SURPLUS_OFF_MINUTES,
     CONF_SOLAR_SURPLUS_OFF_W,
     CONF_SOLAR_SURPLUS_ON_MINUTES,
@@ -394,13 +403,29 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
                 == user_input[CONF_STORAGE_RECHARGE_END]
             ):
                 errors["base"] = "storage_recharge_times_must_differ"
+            elif user_input[CONF_STORAGE_RECHARGE_START_SOC] >= user_input[CONF_STORAGE_RECHARGE_STOP_SOC]:
+                errors["base"] = "storage_recharge_invalid_soc"
             else:
                 new_options = {**self._config_entry.options, **user_input}
                 return self.async_create_entry(title="", data=new_options)
 
-        options = self._config_entry.options
+        options = {**self._config_entry.options, **(user_input or {})}
         schema = vol.Schema(
             {
+                vol.Required(
+                    CONF_STORAGE_RECHARGE_START_SOC,
+                    default=options.get(CONF_STORAGE_RECHARGE_START_SOC, STORAGE_CHARGE_START_SOC),
+                ): selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=0, max=99, step=1, unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.BOX,
+                )),
+                vol.Required(
+                    CONF_STORAGE_RECHARGE_STOP_SOC,
+                    default=options.get(CONF_STORAGE_RECHARGE_STOP_SOC, STORAGE_TARGET_SOC),
+                ): selector.NumberSelector(selector.NumberSelectorConfig(
+                    min=1, max=100, step=1, unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.BOX,
+                )),
                 vol.Required(
                     CONF_STORAGE_RECHARGE_START,
                     default=options.get(
@@ -445,7 +470,8 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
         if user_input is not None:
             if (
-                user_input[CONF_SOLAR_SURPLUS_ON_W]
+                user_input.get(CONF_SOLAR_START_SOURCE, "solar") == "solar"
+                and user_input[CONF_SOLAR_SURPLUS_ON_W]
                 <= user_input[CONF_SOLAR_SURPLUS_OFF_W]
             ):
                 errors["base"] = "solar_on_must_exceed_off"
@@ -455,8 +481,15 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
                     new_options.pop(CONF_SOLAR_POWER_ENTITY, None)
                 return self.async_create_entry(title="", data=new_options)
 
-        options = self._config_entry.options
+        options = {**self._config_entry.options, **(user_input or {})}
         schema_fields: dict[Any, Any] = {}
+        schema_fields[vol.Required(
+            CONF_SOLAR_START_SOURCE,
+            default=options.get(CONF_SOLAR_START_SOURCE, "solar"),
+        )] = selector.SelectSelector(selector.SelectSelectorConfig(
+            options=["solar", "ct"], translation_key="solar_start_source",
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        ))
         solar_entity = options.get(CONF_SOLAR_POWER_ENTITY)
         entity_key = vol.Optional(CONF_SOLAR_POWER_ENTITY)
         if solar_entity:
@@ -470,6 +503,12 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
             )
         )
         for key, default, minimum, maximum, step, unit in (
+            (CONF_CT_EXPORT_START_W,
+             options.get(CONF_CT_EXPORT_START_W, DEFAULT_CT_EXPORT_START_W),
+             1, 20000, 1, "W"),
+            (CONF_CT_START_MINUTES,
+             options.get(CONF_CT_START_MINUTES, DEFAULT_CT_START_MINUTES),
+             1, 30, 1, "min"),
             (
                 CONF_SOLAR_SURPLUS_ON_W,
                 options.get(
