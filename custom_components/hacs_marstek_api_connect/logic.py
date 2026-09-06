@@ -4,6 +4,34 @@ from __future__ import annotations
 from collections import deque
 from datetime import datetime, time, timedelta
 from typing import Any
+import math
+
+
+class CTExportStart:
+    """Collect fresh CT readings only while the battery is holding."""
+
+    def __init__(self) -> None:
+        self.samples: deque[tuple[datetime, float]] = deque()
+
+    def update(self, now: datetime, power: Any, phase: str | None,
+               threshold: float, minutes: int, max_gap: float) -> bool:
+        if phase != "holding":
+            self.samples.clear()
+            # The battery-power checks supervise an active solar cycle.
+            return phase in ("solar_check", "solar_charging")
+        try:
+            value = float(power)
+        except (TypeError, ValueError):
+            value = float("nan")
+        if not math.isfinite(value):
+            self.samples.clear()
+            return False
+        if self.samples and (now - self.samples[-1][0]).total_seconds() > max_gap:
+            self.samples.clear()
+        window = timedelta(minutes=minutes)
+        append_sample(self.samples, now, value, window)
+        average = time_weighted_average(self.samples, now, window)
+        return average is not None and average <= -threshold
 
 
 def normalize_ipv4(value: Any) -> Any:
@@ -197,15 +225,19 @@ def automatic_storage_next_phase(
     charge_confirmation_seconds: float,
     solar_check_max_seconds: float,
     discharge_abort_seconds: float,
+    recharge_start_soc: float = 45,
+    recharge_stop_soc: float = 50,
 ) -> str:
     """Return the next phase for automatic winter operation."""
     def solar_fallback() -> str:
         return "auto" if soc > target_soc else "holding"
 
-    # The configured night period guarantees 50% without using grid energy
-    # during the day. It takes priority if a solar test is still active.
-    if recharge_window_active and soc < target_soc:
-        return "recharging"
+    # Recharge uses hysteresis and is always bounded by the local time window.
+    if recharge_window_active:
+        if current_phase == "recharging" and soc < recharge_stop_soc:
+            return "recharging"
+        if soc <= recharge_start_soc:
+            return "recharging"
     if current_phase in ("charging", "recharging"):
         return "holding"
 

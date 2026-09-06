@@ -143,7 +143,8 @@ class MarstekBinarySensor(CoordinatorEntity, BinarySensorEntity):
         if self.sensor_id == "solar_surplus":
             return (
                 self.coordinator.last_update_success
-                and self.coordinator.solar_power is not None
+                and (self.coordinator.solar_start_source == "ct"
+                     or self.coordinator.solar_power is not None)
             )
         return self.coordinator.last_update_success
 
@@ -156,6 +157,12 @@ class MarstekBinarySensor(CoordinatorEntity, BinarySensorEntity):
             }
         if self.sensor_id != "solar_surplus":
             return None
+        if self.coordinator.solar_start_source == "ct":
+            return {
+                "start_source": "ct",
+                "minimum_export_w": self.coordinator.ct_export_start_w,
+                "start_averaging_minutes": self.coordinator.ct_start_minutes,
+            }
         return {
             "source_entity": self.coordinator.solar_power_entity,
             "turn_on_above_w": self.coordinator.solar_surplus_on_w,
