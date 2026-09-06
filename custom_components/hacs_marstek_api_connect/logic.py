@@ -227,6 +227,7 @@ def automatic_storage_next_phase(
     discharge_abort_seconds: float,
     recharge_start_soc: float = 45,
     recharge_stop_soc: float = 50,
+    ct_start: bool = False,
 ) -> str:
     """Return the next phase for automatic winter operation."""
     def solar_fallback() -> str:
@@ -271,7 +272,7 @@ def automatic_storage_next_phase(
         if soc <= target_soc:
             return "holding"
         if (
-            solar_surplus
+            (solar_surplus or ct_start)
             and battery_average is not None
             and battery_average > charge_threshold_w
         ):

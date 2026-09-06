@@ -444,3 +444,14 @@ Once started, CT approaching zero does not end the cycle: existing battery-power
 confirmation, discharge protection, recharge-window priority and retry cooldown
 remain in effect. The CT option changes the start trigger, not the device's Auto
 mode behavior. Confirm behavior with the actual meter and battery after installation.
+
+
+CT-triggered solar checks confirm charging after at least two minutes with a
+battery-power average above **10 W** (the idle tolerance). The **100 W export**
+setting controls the initial CT trigger, not this confirmation. The solar-power
+source retains its existing above-100-W battery confirmation. In CT mode, actual
+charging while already in Auto also counts for solar full-charge day tracking.
+
+The recharge-window end is enforced even when the SOC field is missing or invalid
+in an otherwise successful status response. Commands still require a working
+connection to the device; tests simulate communication failures without hardware.

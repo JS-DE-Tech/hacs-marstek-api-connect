@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.10.1] - 2026-09-06
+
+### Fixed
+- Stop automatic recharging at the end of its window even when SOC is missing
+  or invalid; never renew the charging target outside that window.
+- Retry failed Passive power changes instead of treating a matching mode name
+  as confirmation of the requested wattage.
+- Reapply restored Passive phases and rearm their renewal timer after restart.
+- Confirm CT-triggered charging above 10 W average battery power, allowing
+  useful charging below the separate 100 W grid-export start threshold.
+- Recognize real battery charging while CT-controlled winter operation is
+  already in Auto, so subsequent solar full-charge days can end winter mode.
+
+### Tests
+- Add offline coordinator regressions with mocked device I/O, including failed
+  stop requests, restart renewal, invalid SOC and two full-charge days.
+- All 99 tests pass; the added regressions reproduce the failures on 2.10.0.
+
 ## [2.10.0] - 2026-09-06
 
 ### Added
