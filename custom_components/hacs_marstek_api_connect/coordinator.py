@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from collections import deque
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -23,6 +24,7 @@ from .const import (
     CONF_PORT,
     CONF_SOLAR_POWER_ENTITY,
     CONF_SOLAR_START_SOURCE,
+    CT_CHARGE_CONFIRMATION_W,
     CONF_STORAGE_RECHARGE_START_SOC,
     CONF_STORAGE_RECHARGE_STOP_SOC,
     CONF_CT_EXPORT_START_W,
@@ -1482,6 +1484,8 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             if soc is not None:
                 soc_value = float(soc)
+                if not math.isfinite(soc_value) or not 0 <= soc_value <= 100:
+                    soc_value = None
         except (TypeError, ValueError):
             _LOGGER.debug("Storage mode received invalid SOC value: %s", soc)
 
@@ -1523,6 +1527,12 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         if soc_value is None:
             next_phase = self._storage_phase
             assert next_phase is not None
+            if (
+                self.automatic_storage_enabled
+                and next_phase == "recharging"
+                and not recharge_window_active
+            ):
+                next_phase = "holding"
             solar_cycle_aborted = False
         elif not self.automatic_storage_enabled:
             next_phase = manual_storage_next_phase(
@@ -1554,7 +1564,12 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 continuous_discharge_seconds=continuous_discharge_seconds,
                 battery_average=battery_average,
                 target_soc=self.storage_recharge_stop_soc,
-                charge_threshold_w=BATTERY_POWER_THRESHOLD_W,
+                charge_threshold_w=(
+                    CT_CHARGE_CONFIRMATION_W
+                    if self.solar_start_source == "ct"
+                    else BATTERY_POWER_THRESHOLD_W
+                ),
+                ct_start=self.solar_start_source == "ct",
                 charge_exit_w=SOLAR_CHARGING_EXIT_W,
                 charge_confirmation_seconds=(
                     SOLAR_CHARGE_CONFIRMATION_SECONDS
@@ -1586,8 +1601,11 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         actual_mode = self.mode_data.get("mode")
         mode_mismatch = actual_mode not in (None, expected_mode)
         keepalive_due = (
-            self._storage_command_due is not None
-            and now >= self._storage_command_due
+            expected_mode == MODE_PASSIVE
+            and (
+                self._storage_command_due is None
+                or now >= self._storage_command_due
+            )
         )
 
         feedback_is_newer_than_restore = (
@@ -1598,10 +1616,16 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         )
         confirmed_pending_transition = (
             planned_command_change
+            # Passive mode feedback does not confirm its power setpoint.
+            and expected_mode != MODE_PASSIVE
             and actual_mode == expected_mode
             and feedback_is_newer_than_restore
         )
-        if actual_mode == expected_mode and feedback_is_newer_than_restore:
+        if (
+            actual_mode == expected_mode
+            and feedback_is_newer_than_restore
+            and not (planned_command_change and expected_mode == MODE_PASSIVE)
+        ):
             self._active_mode_dropout = None
             self._mode_enforcement_failures = 0
             self._mode_enforcement_error = False
@@ -1668,7 +1692,6 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 return
 
         if phase_changed:
-            assert soc_value is not None
             if next_phase == "solar_check":
                 self._solar_check_started = now
             elif previous_phase == "solar_check":
@@ -1680,7 +1703,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                     seconds=SOLAR_CHECK_COOLDOWN_SECONDS
                 )
             _LOGGER.info(
-                "Storage mode changed phase from %s to %s at %.1f%% SOC",
+                "Storage mode changed phase from %s to %s at %s%% SOC",
                 previous_phase,
                 next_phase,
                 soc_value,
