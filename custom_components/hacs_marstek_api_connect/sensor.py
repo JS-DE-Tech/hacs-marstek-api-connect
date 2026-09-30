@@ -117,11 +117,7 @@ class MarstekSensor(CoordinatorEntity, SensorEntity):
             source == "derived"
             and self.sensor_id == "storage_observation_progress"
         ):
-            attributes = self.coordinator.storage_status_attributes
-            return (
-                f"{attributes['low_soc_days']}/"
-                f"{attributes['low_soc_days_required']}"
-            )
+            return self.coordinator.storage_observation_progress
         if source == "derived" and self.sensor_id == "battery_power":
             return self.coordinator.battery_power
         if source == "derived" and self.sensor_id == "battery_charge_power":
@@ -183,7 +179,7 @@ class MarstekSensor(CoordinatorEntity, SensorEntity):
                 check: f"{result['status']} - {result['detail']}"
                 for check, result in report["checks"].items()
             }
-        if self.sensor_id == "storage_status":
+        if self.sensor_id in ("storage_status", "storage_observation_progress"):
             return self.coordinator.storage_status_attributes
         if self.sensor_id != "solar_power":
             return None

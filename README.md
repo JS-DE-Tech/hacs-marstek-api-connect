@@ -455,3 +455,29 @@ charging while already in Auto also counts for solar full-charge day tracking.
 The recharge-window end is enforced even when the SOC field is missing or invalid
 in an otherwise successful status response. Commands still require a working
 connection to the device; tests simulate communication failures without hardware.
+
+
+### Winter diagnostics (2.11.0)
+
+`Observation progress` now shows entry progress (for example `0/5`) while
+observing and exit progress (`0/2`) during automatic Storage. With the automatic
+switch disabled it shows `–`; manually selected Storage has no automatic exit.
+Existing entity IDs are unchanged.
+
+Both `Storage status` and `Observation progress` expose `progress_kind`
+(`entry`, `exit`, `disabled`), `decision_reason`, and `last_invalid_tracking_day`.
+The day counters and configurable thresholds remain available as attributes.
+
+`last_charge_command` retains the latest successful Storage charge command,
+including timestamp with timezone, observed SOC (null if unavailable), phase,
+power, source, reason and start/stop thresholds. `command_history` keeps the
+latest 20 successful Storage commands, including stops, Auto changes, mode
+restoration and periodic renewals. Both survive restarts; stopping or disabling
+Storage does not erase the last charge command. Rejected/failed commands do not
+replace it. These are integration commands, not proof of actual battery energy
+flow; device-internal actions, app commands and manual-mode commands are outside
+this history. A periodic renewal can replace the last charge record and is
+explicitly identified. Use the history to distinguish it from a phase change.
+
+The manual power slider is the setpoint for Manual mode; its displayed value is
+not a measurement of current charging power during winter operation.

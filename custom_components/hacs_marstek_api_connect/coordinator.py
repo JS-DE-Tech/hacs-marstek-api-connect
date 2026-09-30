@@ -196,6 +196,8 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self._active_mode_dropout: str | None = None
         self._solar_sensor_problem: str | None = None
         self._last_invalid_tracking_day: tuple[str, str] | None = None
+        self._storage_command_history: list[dict[str, Any]] = []
+        self._last_storage_charge: dict[str, Any] | None = None
         self._diagnostics_store = Store(
             hass, 1, f"{DOMAIN}.{entry.entry_id}.diagnostics"
         )
@@ -383,8 +385,15 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         self.manual_power = max(-2400, min(2400, power))
 
     async def async_load_diagnostics(self) -> None:
-        """Restore mode-deviation events recorded during the last 24 hours."""
+        """Restore command history and recent mode-deviation events."""
         stored = await self._diagnostics_store.async_load() or {}
+        history = stored.get("storage_commands", [])
+        self._storage_command_history = (
+            [dict(item) for item in history if isinstance(item, dict)][-20:]
+            if isinstance(history, list) else []
+        )
+        charge = stored.get("last_storage_charge")
+        self._last_storage_charge = dict(charge) if isinstance(charge, dict) else None
         cutoff = datetime.now() - timedelta(hours=24)
         restored: list[tuple[datetime, str]] = []
         for item in stored.get("mode_dropouts", []):
@@ -400,6 +409,8 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
     def _diagnostics_data(self) -> dict[str, Any]:
         """Return persistent diagnostic history."""
         return {
+            "storage_commands": self._storage_command_history,
+            "last_storage_charge": self._last_storage_charge,
             "mode_dropouts": [
                 {"timestamp": timestamp.isoformat(), "reason": reason}
                 for timestamp, reason in self._mode_dropouts_last_24h(
@@ -583,6 +594,78 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         return STORAGE_PHASE_STATES.get(self._storage_phase, "storage_holding")
 
     @property
+    def storage_decision_reason(self) -> str:
+        """Explain the active controller state without claiming measured charging."""
+        if not self.automatic_storage_enabled:
+            return (
+                "Manuell gewählte Lagerung (45/50/55 %)"
+                if self.storage_mode_enabled else "Winterautomatik deaktiviert"
+            )
+        if self._automatic_controller_state == "observing":
+            return "Beobachte schwache Tage für den Eintritt in den Winterbetrieb"
+        if self._pending_storage_phase is not None:
+            return "Betriebswechsel noch nicht bestätigt; erneuter Versuch vorgesehen"
+        if self._tracking_full_charge_event:
+            return "Solarer Vollladetag erkannt; warte auf weiteren gültigen Vollladetag"
+        reasons = {
+            "recharging": "Nachladen im freigegebenen Zeitfenster bis zur Stoppgrenze",
+            "charging": "Nachladen bis zum Ziel-Ladezustand",
+            "solar_check": "Prüfe, ob der Speicher tatsächlich solar lädt",
+            "solar_charging": "Solare Ladung erkannt",
+            "auto": "Auto nutzt die Energie oberhalb des Lagerziels",
+        }
+        if self._storage_phase in reasons:
+            return reasons[self._storage_phase]
+        if (
+            self._solar_check_cooldown_until is not None
+            and dt_util.now() < self._solar_check_cooldown_until
+        ):
+            return "Wartezeit nach beendetem Solartest"
+        if time_in_window(
+            dt_util.now().time(), self.storage_recharge_start, self.storage_recharge_end
+        ):
+            return "Halten; Nachladen erst bei Erreichen der Startgrenze"
+        return "Halten; warte auf Solarüberschuss oder das Nachladezeitfenster"
+
+    @property
+    def storage_observation_progress(self) -> str:
+        """Show the counter relevant to the current automatic phase."""
+        if not self.automatic_storage_enabled:
+            return "–"
+        attributes = self.storage_status_attributes
+        if self._automatic_controller_state == "storage":
+            return f"{attributes['full_soc_days']}/{attributes['full_soc_days_required']}"
+        return f"{attributes['low_soc_days']}/{attributes['low_soc_days_required']}"
+
+    async def _async_record_storage_command(
+        self, phase: str, soc: float | None, now: datetime, reason: str
+    ) -> None:
+        """Retain successful controller commands, not inferred device actions."""
+        mode, power = storage_phase_command(phase, STORAGE_CHARGE_POWER)
+        trigger = {
+            "recharging": "Nachladezeitfenster aktiv; Startgrenze erreicht oder Ladung läuft bis Stoppgrenze",
+            "charging": "Lagerladung ab 45 % bis 50 %",
+            "holding": "Halten mit 0 W gemäß Lagerregel/Zeitfenster",
+            "solar_check": "Solarüberschuss erkannt; Ladeprüfung starten",
+            "solar_charging": "Solare Ladung erkannt",
+            "auto": "Auto gemäß Lagerregel",
+        }[phase]
+        record = {
+            "timestamp": now.isoformat(), "soc": soc, "phase": phase,
+            "mode": mode, "power_w": power, "reason": f"{reason}: {trigger}",
+            "source": "automatic_storage" if self.automatic_storage_enabled else "manual_storage",
+            "start_soc": self.storage_recharge_start_soc if self.automatic_storage_enabled else STORAGE_CHARGE_START_SOC,
+            "stop_soc": self.storage_recharge_stop_soc if self.automatic_storage_enabled else STORAGE_TARGET_SOC,
+        }
+        self._storage_command_history = (self._storage_command_history + [record])[-20:]
+        if power is not None and power < 0:
+            self._last_storage_charge = dict(record)
+        try:
+            await self._diagnostics_store.async_save(self._diagnostics_data())
+        except Exception:
+            _LOGGER.exception("Could not persist storage command history")
+
+    @property
     def storage_status_attributes(self) -> dict[str, Any]:
         """Return the day counters behind the automatic winter state."""
         full_soc_days = self._full_soc_days
@@ -592,6 +675,14 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             )
         return {
             "storage_phase": self._storage_phase,
+            "progress_kind": (
+                "disabled" if not self.automatic_storage_enabled else
+                "exit" if self._automatic_controller_state == "storage" else "entry"
+            ),
+            "decision_reason": self.storage_decision_reason,
+            "last_invalid_tracking_day": self._last_invalid_tracking_day,
+            "last_charge_command": dict(self._last_storage_charge) if self._last_storage_charge else None,
+            "command_history": [dict(item) for item in self._storage_command_history],
             "low_soc_days": self._low_soc_days,
             "low_soc_days_required": self.storage_observation_days,
             "full_soc_days": full_soc_days,
@@ -1690,6 +1781,16 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
                 )
                 self.async_update_listeners()
                 return
+
+        if needs_command:
+            command_reason = (
+                "Phasenwechsel" if phase_changed else
+                "Betriebsmodus wiederherstellen" if restore_attempt else
+                "Periodische Befehlserneuerung"
+            )
+            await self._async_record_storage_command(
+                next_phase, soc_value, now, command_reason
+            )
 
         if phase_changed:
             if next_phase == "solar_check":
