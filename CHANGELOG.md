@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.11.1] - 2026-09-30
+
+### Fixed
+- Fix Status Lagerung and Observation progress failing to load when a solar cooldown exists: normalize host-local controller deadlines and timezone-aware Home Assistant time before comparing them.
+- Include an explicit timezone offset in new command-history timestamps.
+- Add regression coverage reproducing the 2.11.0 exception, including active/expired cooldowns and different timezone offsets.
+
 ## [2.11.0] - 2026-09-30
 
 ### Added

@@ -616,9 +616,13 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
         }
         if self._storage_phase in reasons:
             return reasons[self._storage_phase]
+        # Controller deadlines use host-local datetime.now(), while HA's
+        # clock is timezone-aware. Interpret naive deadlines in host local
+        # time and compare instants, including restored aware deadlines.
         if (
             self._solar_check_cooldown_until is not None
-            and dt_util.now() < self._solar_check_cooldown_until
+            and dt_util.now().astimezone()
+            < self._solar_check_cooldown_until.astimezone()
         ):
             return "Wartezeit nach beendetem Solartest"
         if time_in_window(
@@ -651,7 +655,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator):
             "auto": "Auto gemäß Lagerregel",
         }[phase]
         record = {
-            "timestamp": now.isoformat(), "soc": soc, "phase": phase,
+            "timestamp": now.astimezone().isoformat(), "soc": soc, "phase": phase,
             "mode": mode, "power_w": power, "reason": f"{reason}: {trigger}",
             "source": "automatic_storage" if self.automatic_storage_enabled else "manual_storage",
             "start_soc": self.storage_recharge_start_soc if self.automatic_storage_enabled else STORAGE_CHARGE_START_SOC,
