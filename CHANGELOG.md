@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.11.0] - 2026-09-30
+
+### Added
+- Persistent Storage command history (latest 20 commands) and last charge command with time, SOC, reason, power, source and configured thresholds.
+- Decision reasons and invalid-day diagnostics on Storage status and Observation progress.
+
+### Changed
+- Observation progress shows entry days outside Storage and full-charge exit days inside automatic Storage; disabled automation displays a dash. Entity IDs and charging rules are unchanged.
+
+### Tested
+- Regression coverage for command persistence, rejection, bounded history, progress switching, midnight, restart and invalid-day exit tracking. No live Home Assistant or hardware test.
+
 ## [2.10.1] - 2026-09-06
 
 ### Fixed

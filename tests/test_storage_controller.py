@@ -25,12 +25,12 @@ def load(name):
 LOGIC, CONST = load('logic'), load('const')
 CLOCK = SimpleNamespace(value=datetime(2026, 9, 6, 5, 1))
 NS = {**vars(LOGIC), **vars(CONST), 'Any': Any, 'math': math,
-      'datetime': datetime, 'date': date, 'asyncio': SimpleNamespace(sleep=AsyncMock()),
+      'datetime': datetime, 'date': date, 'timedelta': timedelta, 'asyncio': SimpleNamespace(sleep=AsyncMock()),
       'dt_util': SimpleNamespace(now=lambda: CLOCK.value),
       '_LOGGER': logging.getLogger('storage_test')}
 tree = ast.parse((ROOT / 'coordinator.py').read_text(encoding='utf-8'))
 cls = next(x for x in tree.body if isinstance(x, ast.ClassDef))
-names = {'_async_update_storage_mode', '_reset_mode_enforcement', '_async_apply_storage_phase', '_async_update_automatic_storage', '_async_finalize_tracking_day', '_reset_day_tracking', '_async_exit_automatic_storage', '_automatic_storage_data'}
+names = {'_async_update_storage_mode', '_reset_mode_enforcement', '_async_apply_storage_phase', '_async_update_automatic_storage', '_async_finalize_tracking_day', '_reset_day_tracking', '_async_exit_automatic_storage', '_automatic_storage_data', 'storage_status_attributes', 'storage_decision_reason', 'storage_observation_progress', '_async_record_storage_command', '_diagnostics_data', 'async_load_diagnostics', '_mode_dropouts_last_24h', 'async_load_automatic_storage'}
 methods = [x for x in cls.body if isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef)) and x.name in names]
 module = ast.Module(body=[ast.ClassDef(name='Controller', bases=[], keywords=[], body=methods, decorator_list=[])], type_ignores=[])
 exec(compile(ast.fix_missing_locations(module), str(ROOT / 'coordinator.py'), 'exec'), NS)
@@ -40,6 +40,17 @@ class StorageControllerTests(unittest.IsolatedAsyncioTestCase):
         CLOCK.value = datetime(2026, 9, 6, 5, 1)
         self.now = CLOCK.value
         c = self.c = NS['Controller']()
+        c._storage_command_history = []
+        c._last_storage_charge = None
+        c._mode_dropouts = deque(maxlen=100)
+        c._diagnostics_store = SimpleNamespace(async_save=AsyncMock(), async_load=AsyncMock(return_value={}))
+        c._automatic_controller_state = 'storage'
+        c.storage_mode_enabled = True
+        c._full_soc_days = 0
+        c._low_soc_days = 0
+        c.storage_observation_days = 5
+        c._tracking_full_charge_event = False
+        c._last_invalid_tracking_day = None
         c._storage_phase = 'recharging'
         c.storage_recharge_start = time(22)
         c.storage_recharge_end = time(5)
@@ -179,6 +190,111 @@ class StorageControllerTests(unittest.IsolatedAsyncioTestCase):
         self.c._battery_power_samples = deque([(self.now-timedelta(minutes=2),90),(self.now,90)])
         await self.update(45,90)
         self.assertEqual('holding',self.c._storage_phase)
+
+
+    async def test_progress_switches_between_entry_exit_and_disabled(self):
+        c = self.c
+        self.assertEqual('0/2', c.storage_observation_progress)
+        c._tracking_full_charge_event = True
+        self.assertEqual('1/2', c.storage_observation_progress)
+        c._full_soc_days = 1
+        self.assertEqual('2/2', c.storage_observation_progress)
+        c._automatic_controller_state = 'observing'
+        c._low_soc_days = 3
+        self.assertEqual('3/5', c.storage_observation_progress)
+        self.assertEqual('entry', c.storage_status_attributes['progress_kind'])
+        c.automatic_storage_enabled = False
+        self.assertEqual('–', c.storage_observation_progress)
+
+    async def test_charge_history_survives_stop_and_reload(self):
+        c = self.c
+        CLOCK.value = self.now.replace(hour=23)
+        c._storage_phase = 'holding'
+        await self.update(44)
+        saved_charge = dict(c._last_storage_charge)
+        self.assertEqual(44, saved_charge['soc'])
+        self.assertEqual(-500, saved_charge['power_w'])
+        self.assertEqual('automatic_storage', saved_charge['source'])
+        self.assertIn('Nachladezeitfenster', saved_charge['reason'])
+        await self.update(50)
+        self.assertEqual(saved_charge, c._last_storage_charge)
+        self.assertEqual(0, c._storage_command_history[-1]['power_w'])
+        stored = c._diagnostics_store.async_save.call_args.args[0]
+        c._last_storage_charge = None
+        c._storage_command_history = []
+        c._diagnostics_store.async_load.return_value = stored
+        await c.async_load_diagnostics()
+        self.assertEqual(saved_charge, c._last_storage_charge)
+        self.assertEqual(2, len(c._storage_command_history))
+
+    async def test_failed_charge_does_not_replace_history(self):
+        c = self.c
+        CLOCK.value = self.now.replace(hour=23)
+        c._storage_phase = 'holding'
+        for failure in ({'set_result': False}, TimeoutError()):
+            c.client.set_passive_mode.side_effect = [failure]
+            await self.update(44)
+            self.assertIsNone(c._last_storage_charge)
+            self.assertEqual([], c._storage_command_history)
+
+    async def test_history_is_bounded_and_keepalive_is_identified(self):
+        CLOCK.value = self.now.replace(hour=23)
+        for _ in range(25):
+            self.c._storage_command_due = CLOCK.value
+            await self.update(48)
+        self.assertEqual(20, len(self.c._storage_command_history))
+        self.assertIn('Periodische', self.c._last_storage_charge['reason'])
+
+    async def test_persistence_failure_does_not_repeat_control_transition(self):
+        self.c._diagnostics_store.async_save.side_effect = OSError('disk unavailable')
+        with self.assertLogs('storage_test', level='ERROR'):
+            await self.update(50)
+        self.assertEqual('holding', self.c._storage_phase)
+        await self.update(50)
+        self.c.client.set_passive_mode.assert_awaited_once()
+
+    async def test_decision_reason_reports_retry_and_cooldown(self):
+        c = self.c
+        c._pending_storage_phase = 'holding'
+        self.assertIn('nicht bestätigt', c.storage_decision_reason)
+        c._pending_storage_phase = None
+        c._storage_phase = 'holding'
+        c._solar_check_cooldown_until = CLOCK.value + timedelta(minutes=10)
+        self.assertIn('Wartezeit', c.storage_decision_reason)
+        c._solar_check_cooldown_until = None
+        self.assertIn('Solarüberschuss', c.storage_decision_reason)
+
+    async def test_short_day_resets_exit_counter(self):
+        c = self.c
+        c._reset_day_tracking(CLOCK.value)
+        c._tracking_last_seen = CLOCK.value + timedelta(hours=1)
+        c._tracking_max_soc = 99
+        c._tracking_full_charge_event = True
+        c._full_soc_days = 1
+        await c._async_finalize_tracking_day(CLOCK.value.date() + timedelta(days=1))
+        self.assertEqual(0, c._full_soc_days)
+        self.assertIsNotNone(c.storage_status_attributes['last_invalid_tracking_day'])
+
+    async def test_restored_first_full_day_allows_next_day_exit(self):
+        c = self.c
+        c._reset_day_tracking(CLOCK.value.replace(hour=1))
+        c._tracking_last_seen = CLOCK.value.replace(hour=23)
+        c._tracking_max_soc = 99
+        c._tracking_min_soc = 80
+        c._tracking_had_solar_charge = True
+        c._tracking_full_charge_event = True
+        c._automatic_storage = SimpleNamespace(async_save=AsyncMock())
+        stored = c._automatic_storage_data()
+        c._automatic_storage.async_load = AsyncMock(return_value=stored)
+        await c.async_load_automatic_storage()
+        c._storage = SimpleNamespace(async_save=AsyncMock())
+        c.set_mode = AsyncMock()
+        CLOCK.value = CLOCK.value.replace(day=7, hour=1)
+        await c._async_update_automatic_storage(80)
+        self.assertEqual(1, c._full_soc_days)
+        c._tracking_had_solar_charge = True
+        await c._async_update_automatic_storage(99)
+        c.set_mode.assert_awaited_once_with('Auto')
 
 if __name__ == '__main__':
     unittest.main()
