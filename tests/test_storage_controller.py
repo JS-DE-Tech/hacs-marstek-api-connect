@@ -9,7 +9,7 @@ import importlib.util
 import logging
 import math
 from collections import deque
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -212,6 +212,7 @@ class StorageControllerTests(unittest.IsolatedAsyncioTestCase):
         c._storage_phase = 'holding'
         await self.update(44)
         saved_charge = dict(c._last_storage_charge)
+        self.assertIsNotNone(datetime.fromisoformat(saved_charge['timestamp']).tzinfo)
         self.assertEqual(44, saved_charge['soc'])
         self.assertEqual(-500, saved_charge['power_w'])
         self.assertEqual('automatic_storage', saved_charge['source'])
@@ -295,6 +296,28 @@ class StorageControllerTests(unittest.IsolatedAsyncioTestCase):
         c._tracking_had_solar_charge = True
         await c._async_update_automatic_storage(99)
         c.set_mode.assert_awaited_once_with('Auto')
+
+
+    async def test_ha_aware_clock_with_naive_cooldown_keeps_sensors_readable(self):
+        c = self.c
+        c._storage_phase = 'holding'
+        naive_now = CLOCK.value
+        # Production controller uses datetime.now(); HA dt_util.now() is aware.
+        CLOCK.value = naive_now.astimezone(timezone(timedelta(hours=2)))
+        for minutes, waiting in ((10, True), (-1, False), (0, False)):
+            with self.subTest(minutes=minutes):
+                c._solar_check_cooldown_until = naive_now + timedelta(minutes=minutes)
+                attributes = c.storage_status_attributes
+                self.assertEqual(waiting, 'Wartezeit' in attributes['decision_reason'])
+                self.assertEqual('0/2', c.storage_observation_progress)
+
+    async def test_aware_cooldown_in_other_timezone(self):
+        c = self.c
+        c._storage_phase = 'holding'
+        CLOCK.value = CLOCK.value.astimezone(timezone(timedelta(hours=2)))
+        c._solar_check_cooldown_until = (CLOCK.value + timedelta(minutes=10)).astimezone(timezone.utc)
+        self.assertIn('Wartezeit', c.storage_status_attributes['decision_reason'])
+        self.assertEqual('0/2', c.storage_observation_progress)
 
 if __name__ == '__main__':
     unittest.main()
